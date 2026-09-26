@@ -4,13 +4,20 @@
 
 界面文字为简体中文，可以用遥控器完成全部操作。
 
-## 安装
+## 下载
 
-当前提供的是 **debug 签名** 的通用 APK，同时包含 `armeabi-v7a`、`arm64-v8a`、`x86` 和 `x86_64`。最低系统为 Android 5.0（API 21）。电视、电视盒子和手机都可以安装。签名证书由构建工具在本机生成，不会提交到仓库。
+GitHub Release 里有两个安装包，按电视的 CPU 选一个即可，不必两个都装：
+
+- `jianxia-arm64-v8a.apk`：近几年的电视、盒子和手机
+- `jianxia-armeabi-v7a.apk`：更早的 32 位盒子
+
+最低系统为 Android 5.0（API 21）。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.1.0-beta`）是预发布版本。
+
+## 安装
 
 ### U 盘
 
-1. 把 `app-debug.apk` 拷到 U 盘。
+1. 把对应架构的 APK 拷到 U 盘。
 2. 将 U 盘插到电视或盒子。
 3. 用系统自带的文件管理器，或电视上已安装的文件管理器，打开 APK 并安装。
 4. 如果系统提示「未知来源」，到系统设置里允许该文件管理器安装应用。
@@ -18,14 +25,14 @@
 ### 当贝市场 / 当贝助手
 
 1. 电脑安装当贝助手，用数据线连接盒子，或让盒子与电脑处于同一局域网。
-2. 在当贝助手里选择「安装本地 APK」，选中 `app-debug.apk`。
+2. 在当贝助手里选择「安装本地 APK」，选中对应架构的 APK。
 3. 安装完成后，在电视桌面的「应用」或 Leanback 启动器里打开「简匣」。
 
 ### adb
 
 ```bash
 adb connect 电视IP:5555
-adb install -r app-debug.apk
+adb install -r jianxia-arm64-v8a.apk
 adb shell am start -n app.jianxia.tv/.MainActivity
 ```
 
@@ -87,7 +94,7 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 ./gradlew :core:test :app:assembleDebug
 ```
 
-需要 JDK 17 或更高版本，以及 Android SDK 35。Debug APK 在 `app/build/outputs/apk/debug/app-debug.apk`。
+需要 JDK 17 或更高版本，以及 Android SDK 35。发布用的安装包在 `app/build/outputs/apk/release/`，按 `armeabi-v7a` 和 `arm64-v8a` 分开。推送 `v*` 标签时，GitHub Actions 会把这两个 APK 挂到对应的 Release 上。
 
 `core` 模块是纯 Kotlin，单元测试覆盖 TVBox JSON、苹果 CMS JSON/XML、M3U、TXT、结果合并和线路排序。测试夹具使用虚构片名和 `example.test`，不是可用片源。
 

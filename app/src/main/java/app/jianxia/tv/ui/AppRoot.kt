@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -52,9 +52,9 @@ private data class RailItem(val route: String, val label: String, val icon: Imag
 private val rail = listOf(
     RailItem("home", "首页", Icons.Filled.Home),
     RailItem("search", "搜索", Icons.Filled.Search),
-    RailItem("live", "直播", Icons.Filled.LiveTv),
+    RailItem("live", "直播", Icons.Filled.PlayArrow),
     RailItem("favorites", "收藏", Icons.Filled.Favorite),
-    RailItem("history", "历史", Icons.Filled.History),
+    RailItem("history", "历史", Icons.AutoMirrored.Filled.List),
     RailItem("settings", "设置", Icons.Filled.Settings),
 )
 

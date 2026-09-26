@@ -3,8 +3,12 @@ name: 构建 APK
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -20,18 +24,32 @@ jobs:
 
       - name: 安装 Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # 不要请求已经下架的 tools 包，否则 sdkmanager 会直接失败。
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
-      - name: 安装编译组件
+      - name: 单元测试并打包
+        run: ./gradlew :core:test :app:assembleRelease --stacktrace
+
+      - name: 整理安装包
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-
-      - name: 单元测试并打包 Debug APK
-        run: ./gradlew :core:test :app:assembleDebug --stacktrace
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*arm64-v8a*.apk dist/jianxia-arm64-v8a.apk
+          cp app/build/outputs/apk/release/*armeabi-v7a*.apk dist/jianxia-armeabi-v7a.apk
+          ls -lh dist
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: jianxia-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: jianxia-apk
+          path: dist/*.apk
           if-no-files-found: error
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

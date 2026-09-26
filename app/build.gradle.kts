@@ -14,13 +14,25 @@ android {
         minSdk = 21
         targetSdk = 35
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "0.1.0-beta"
         vectorDrawables.useSupportLibrary = true
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("armeabi-v7a", "arm64-v8a")
+            isUniversalApk = false
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 用调试证书签名，方便直接安装；密钥不入库。
+            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -73,7 +85,7 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-core")
 
     implementation("androidx.tv:tv-material:1.0.0")
     implementation("androidx.navigation:navigation-compose:2.8.5")
