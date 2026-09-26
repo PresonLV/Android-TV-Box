@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tv>
+  <channel id="demo1"><display-name lang="zh">演示一台</display-name></channel>
+  <programme start="20240101120000 +0800" stop="20240101130000 +0800" channel="demo1">
+    <title lang="zh">灯市新闻</title>
+  </programme>
+  <programme start="20240101130000 +0800" stop="20240101140000 +0800" channel="demo1">
+    <title>下一档</title>
+  </programme>
+</tv>

@@ -1,0 +1,37 @@
+{
+  "code": 1,
+  "msg": "数据列表",
+  "page": "1",
+  "pagecount": 2,
+  "limit": "20",
+  "total": 2,
+  "class": [
+    {"type_id": 1, "type_pid": 0, "type_name": "电影"},
+    {"type_id": 2, "type_pid": 0, "type_name": "电视剧"}
+  ],
+  "list": [
+    {
+      "vod_id": 7,
+      "vod_name": "山海灯市",
+      "vod_pic": "//img.example.test/a.jpg",
+      "type_name": "电影",
+      "vod_year": "2024",
+      "vod_area": "中国",
+      "vod_remarks": "HD",
+      "vod_actor": "林夏",
+      "vod_director": "周宁",
+      "vod_content": "<p>海边的灯市。</p>",
+      "vod_play_from": "快线$$$备用",
+      "vod_play_url": "正片$https://cdn.example.test/a.m3u8$$$正片$https://cdn.example.test/b.mp4"
+    },
+    {
+      "vod_id": 8,
+      "vod_name": "北窗来信",
+      "type_name": "电视剧",
+      "vod_year": 2023,
+      "vod_remarks": "更新至2集",
+      "vod_play_from": "默认",
+      "vod_play_url": "第1集$https://cdn.example.test/1.m3u8#第2集$https://cdn.example.test/2.m3u8"
+    }
+  ]
+}

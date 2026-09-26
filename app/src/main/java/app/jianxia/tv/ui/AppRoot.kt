@@ -1,0 +1,157 @@
+package app.jianxia.tv.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.tv.material3.Border
+import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Surface
+import app.jianxia.tv.ui.detail.DetailScreen
+import app.jianxia.tv.ui.home.HomeScreen
+import app.jianxia.tv.ui.library.LibraryScreen
+import app.jianxia.tv.ui.live.LiveScreen
+import app.jianxia.tv.ui.player.PlayerScreen
+import app.jianxia.tv.ui.search.SearchScreen
+import app.jianxia.tv.ui.settings.SettingsScreen
+import coil.compose.AsyncImage
+import androidx.compose.foundation.BorderStroke
+
+private data class RailItem(val route: String, val label: String, val icon: ImageVector)
+
+private val rail = listOf(
+    RailItem("home", "首页", Icons.Filled.Home),
+    RailItem("search", "搜索", Icons.Filled.Search),
+    RailItem("live", "直播", Icons.Filled.LiveTv),
+    RailItem("favorites", "收藏", Icons.Filled.Favorite),
+    RailItem("history", "历史", Icons.Filled.History),
+    RailItem("settings", "设置", Icons.Filled.Settings),
+)
+
+@Composable
+fun AppRoot() {
+    val app = LocalApp.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val palette = LocalPalette.current
+    val nav = rememberNavController()
+    val start = if (settings.startupPage == "live") "live" else "home"
+    val entry by nav.currentBackStackEntryAsState()
+    val route = entry?.destination?.route.orEmpty()
+    val showRail = route != "player" && !route.startsWith("detail")
+    Box(Modifier.fillMaxSize().background(palette.gradient)) {
+        if (settings.backgroundType == "image" && settings.backgroundImageUrl.isNotBlank()) {
+            AsyncImage(
+                model = settings.backgroundImageUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(Modifier.fillMaxSize().background(palette.bg.copy(alpha = if (palette.dark) 0.72f else 0.55f)))
+        }
+        Row(Modifier.fillMaxSize()) {
+            if (showRail) {
+                Rail(
+                    current = route.substringBefore("/"),
+                    onSelect = { target ->
+                        nav.navigate(target) {
+                            popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
+            }
+            NavHost(
+                navController = nav,
+                startDestination = start,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            ) {
+                composable("home") {
+                    HomeScreen(
+                        onOpen = { nav.navigate("detail/${navKey(it)}") },
+                        onPlay = { nav.navigate("player") },
+                        onSettings = { nav.navigate("settings") },
+                    )
+                }
+                composable("search") { SearchScreen(onOpen = { nav.navigate("detail/${navKey(it)}") }) }
+                composable("live") { LiveScreen() }
+                composable("favorites") { LibraryScreen(favorites = true, onOpen = { nav.navigate("detail/${navKey(it)}") }) }
+                composable("history") { LibraryScreen(favorites = false, onOpen = { nav.navigate("detail/${navKey(it)}") }, onPlay = { nav.navigate("player") }) }
+                composable("settings") { SettingsScreen() }
+                composable("detail/{key}") { back ->
+                    DetailScreen(
+                        encodedKey = back.arguments?.getString("key").orEmpty(),
+                        onPlay = { nav.navigate("player") },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("player") { PlayerScreen(onBack = { nav.popBackStack() }) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Rail(current: String, onSelect: (String) -> Unit) {
+    val palette = LocalPalette.current
+    Column(
+        Modifier.width(108.dp).fillMaxHeight().background(palette.bg.copy(alpha = 0.35f)).padding(vertical = 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("简匣", color = palette.accent, fontSize = 18.sp, modifier = Modifier.padding(bottom = 18.dp))
+        rail.forEach { item ->
+            val selected = current == item.route
+            Surface(
+                onClick = { onSelect(item.route) },
+                modifier = Modifier.padding(vertical = 4.dp).width(84.dp),
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) palette.accent.copy(alpha = 0.18f) else palette.surface.copy(alpha = 0.2f),
+                    contentColor = if (selected) palette.accent else palette.text,
+                    focusedContainerColor = palette.surface2,
+                    focusedContentColor = palette.accent,
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(16.dp)),
+                    focusedDisabledBorder = Border.None,
+                ),
+            ) {
+                Column(Modifier.padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp), tint = if (selected) palette.accent else palette.text)
+                    Text(item.label, color = if (selected) palette.accent else palette.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+        }
+    }
+}

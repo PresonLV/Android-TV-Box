@@ -1,0 +1,8 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="demo1" tvg-name="演示一台" tvg-logo="https://img.example.test/1.png" group-title="演示",演示一台
+https://live.example.test/1.m3u8
+#EXTINF:-1 tvg-id="demo2" group-title="演示",演示二台
+https://live.example.test/2.m3u8
+#EXTGRP:其他
+#EXTINF:-1,演示三台
+https://live.example.test/3.m3u8

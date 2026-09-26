@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="5.1">
+  <list page="1" pagecount="3" pagesize="20" recordcount="40">
+    <video>
+      <last>2024-01-01 00:00:00</last>
+      <id>15</id>
+      <tid>1</tid>
+      <name><![CDATA[山海灯市]]></name>
+      <type>电影</type>
+      <pic>https://img.example.test/a.jpg</pic>
+      <year>2024</year>
+      <area>中国</area>
+      <note><![CDATA[HD]]></note>
+      <actor><![CDATA[林夏]]></actor>
+      <director><![CDATA[周宁]]></director>
+      <des><![CDATA[海边的灯市。]]></des>
+      <dl>
+        <dd flag="线路1"><![CDATA[正片$https://cdn.example.test/a.m3u8#花絮$https://cdn.example.test/extra.mp4]]></dd>
+        <dd flag="线路1"><![CDATA[正片$https://cdn.example.test/c.mp4]]></dd>
+      </dl>
+    </video>
+  </list>
+  <class>
+    <ty id="1">电影</ty>
+    <ty id="2">电视剧</ty>
+  </class>
+</rss>

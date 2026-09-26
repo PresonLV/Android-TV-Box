@@ -1,0 +1,6 @@
+演示组,#genre#
+演示一台,https://live.example.test/1.m3u8
+演示二台,https://live.example.test/2.m3u8
+
+另一组,#genre#
+演示三台，https://live.example.test/3.m3u8
