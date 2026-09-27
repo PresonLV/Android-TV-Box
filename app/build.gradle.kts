@@ -5,6 +5,17 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val releaseKeystorePath = System.getenv("KEYSTORE_FILE").orEmpty()
+val releaseStorePassword = System.getenv("KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("KEY_PASSWORD").orEmpty()
+val hasReleaseSigning = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { it.isNotBlank() } && file(releaseKeystorePath).isFile
+
 android {
     namespace = "app.jianxia.tv"
     compileSdk = 35
@@ -13,8 +24,8 @@ android {
         applicationId = "app.jianxia.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 15
-        versionName = "0.4.4-beta"
+        versionCode = 16
+        versionName = "0.4.5-beta"
         vectorDrawables.useSupportLibrary = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -28,10 +39,23 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                storeType = "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // 用调试证书签名，方便直接安装；密钥不入库。
-            signingConfig = signingConfigs.getByName("debug")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -114,4 +138,33 @@ dependencies {
 
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
+}
+
+tasks.configureEach {
+    val needsReleaseCert = name.contains("Release") && (
+        name.startsWith("package") ||
+            name.startsWith("sign") ||
+            name.startsWith("assemble")
+        )
+    if (!needsReleaseCert) return@configureEach
+    doFirst {
+        val store = System.getenv("KEYSTORE_FILE").orEmpty()
+        val materialReady = store.isNotBlank() &&
+            !System.getenv("KEYSTORE_PASSWORD").isNullOrBlank() &&
+            !System.getenv("KEY_ALIAS").isNullOrBlank() &&
+            !System.getenv("KEY_PASSWORD").isNullOrBlank() &&
+            project.file(store).isFile
+        if (!materialReady) {
+            throw GradleException(
+                "发布签名材料缺失。必须设置 KEYSTORE_FILE、KEYSTORE_PASSWORD、KEY_ALIAS、KEY_PASSWORD，并且密钥库文件存在。不会改用随机调试证书。",
+            )
+        }
+        val releaseSigning = project.extensions.getByType(com.android.build.api.dsl.ApplicationExtension::class.java)
+            .buildTypes.getByName("release").signingConfig
+        if (releaseSigning == null || releaseSigning.name != "release") {
+            throw GradleException(
+                "release 没有使用 signingConfigs.release。不会改用随机调试证书。",
+            )
+        }
+    }
 }
