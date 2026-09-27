@@ -15,16 +15,24 @@ import app.jianxia.tv.data.repo.LiveRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
 import app.jianxia.tv.ui.installImageLoader
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class JianXiaApp : Application() {
     lateinit var container: AppContainer
         private set
+    private val jobs = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         installImageLoader(this)
         container = AppContainer(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(container.lan.observer)
+        jobs.launch {
+            runCatching { container.sources.ensurePublicChannels(container.settings) }
+        }
     }
 }
 

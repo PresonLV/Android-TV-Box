@@ -4,7 +4,11 @@ import android.content.Context
 import app.jianxia.core.UserFacingError
 import app.jianxia.core.aggregate.ParallelAggregator
 import app.jianxia.core.backup.BackupCodec
+import app.jianxia.core.backup.BatchAdd
+import app.jianxia.core.backup.BatchLine
+import app.jianxia.core.backup.BatchPlan
 import app.jianxia.core.backup.UrlList
+import app.jianxia.core.live.IptvOrg
 import app.jianxia.core.backup.withRecentSearch
 import app.jianxia.core.merge.CategoryMatcher
 import app.jianxia.core.merge.mergeVodItems
@@ -80,9 +84,83 @@ class SettingsRepository(context: Context) {
 data class SourceChange(val source: SourceEntity, val summary: String)
 
 class SourceRepository(private val dao: SourceDao, private val http: NetClient) {
+    private val gate = Mutex()
+
     fun observe(): Flow<List<SourceEntity>> = dao.observe()
 
     suspend fun list(): List<SourceEntity> = dao.list()
+
+    suspend fun ensurePublicChannels(settings: SettingsRepository) = gate.withLock {
+        if (settings.state.value.iptvOrgSeeded) return@withLock
+        val items = dao.list()
+        val match = items.firstOrNull { it.id == IptvOrg.ID || IptvOrg.isPublicPlaylist(it.url) }
+        if (match == null) {
+            dao.upsert(publicEntity(IptvOrg.DEFAULT_KIND, IptvOrg.DEFAULT_CODE, IptvOrg.label("country", "cn"), dao.maxOrder() + 1))
+        } else if (match.id != IptvOrg.ID) {
+            dao.delete(match.id)
+            dao.upsert(
+                match.copy(
+                    id = IptvOrg.ID,
+                    name = IptvOrg.NAME,
+                    note = match.note.ifBlank { IptvOrg.note(IptvOrg.label(settings.state.value.iptvOrgKind, settings.state.value.iptvOrgCode)) },
+                ),
+            )
+        }
+        settings.update { it.copy(iptvOrgSeeded = true) }
+    }
+
+    suspend fun applyPublicPlaylist(kind: String, code: String, label: String) = gate.withLock {
+        val current = dao.list().firstOrNull { it.id == IptvOrg.ID }
+        val order = current?.sortOrder ?: (dao.maxOrder() + 1)
+        val next = (current ?: publicEntity(kind, code, label, order)).copy(
+            id = IptvOrg.ID,
+            name = IptvOrg.NAME,
+            url = IptvOrg.playlist(kind, code),
+            kind = "live",
+            epgUrl = null,
+            enabled = true,
+            note = IptvOrg.note(label),
+            sortOrder = order,
+        )
+        if (current != null && current.id != next.id) dao.delete(current.id)
+        dao.upsert(next)
+    }
+
+    suspend fun addMany(raw: String, name: String?, epg: String?): List<BatchLine> = withContext(Dispatchers.IO) {
+        val planned = BatchAdd.plan(raw, dao.list().map { it.url })
+        if (planned.isEmpty()) throw IllegalArgumentException("没有找到网址")
+        val single = planned.size == 1 && planned.first() is BatchPlan.Fresh
+        planned.map { item ->
+            when (item) {
+                is BatchPlan.Exists -> BatchLine(item.url, "exists", "已存在")
+                is BatchPlan.Fresh -> {
+                    val change = runCatching { add(item.url, if (single) name else null, if (single) epg else null) }
+                    change.fold(
+                        onSuccess = { result ->
+                            if (result.source.kind == "failed") {
+                                BatchLine(item.url, "failed", result.summary)
+                            } else {
+                                BatchLine(item.url, "ok", "成功")
+                            }
+                        },
+                        onFailure = { error -> BatchLine(item.url, "failed", UserFacingError.message(error)) },
+                    )
+                }
+            }
+        }
+    }
+
+    private fun publicEntity(kind: String, code: String, label: String, order: Int) = SourceEntity(
+        id = IptvOrg.ID,
+        name = IptvOrg.NAME,
+        url = IptvOrg.playlist(kind, code),
+        kind = "live",
+        epgUrl = null,
+        enabled = true,
+        sortOrder = order,
+        addedAt = System.currentTimeMillis(),
+        note = IptvOrg.note(label),
+    )
 
     suspend fun add(url: String, name: String?, epg: String?): SourceChange = withContext(Dispatchers.IO) {
         val trimmed = url.trim()
@@ -504,29 +582,64 @@ private fun VodItem.toDef(): VodSiteDef = VodSiteDef(
     api = api,
 )
 
+data class LoadedLive(
+    val channels: List<LiveChannel> = emptyList(),
+    val guide: EpgGuide = EpgGuide(),
+    val error: String? = null,
+)
+
 class LiveRepository(private val http: NetClient) {
-    suspend fun channels(lives: List<ResolvedLive>): List<LiveChannel> = withContext(Dispatchers.IO) {
+    suspend fun load(lives: List<ResolvedLive>): LoadedLive = withContext(Dispatchers.IO) {
         val all = mutableListOf<LiveChannel>()
+        val guideUrls = lives.mapNotNull { it.epgUrl?.trim()?.takeIf { url -> url.startsWith("http") } }.toMutableList()
+        var failure: String? = null
         for (live in lives) {
+            val fetched = runCatching { http.textBlocking(live.url, maxBytes = 4_000_000) }
+            val text = fetched.getOrElse {
+                failure = failure ?: UserFacingError.message(it)
+                null
+            } ?: continue
+            M3uParser.declaredGuide(text)?.let { guideUrls += it }
             val parsed = runCatching {
-                val text = http.textBlocking(live.url, maxBytes = 4_000_000)
                 val m3u = if (text.contains("#EXTM3U", ignoreCase = true)) M3uParser.parse(text) else emptyList()
                 val channels = if (m3u.isNotEmpty() && !M3uParser.looksLikeSegments(m3u)) m3u else TxtLiveParser.parse(text)
                 channels.map { channel ->
                     val grouped = if (channel.group == "未分组" || channel.group == "默认") channel.copy(group = live.name) else channel
                     grouped.copy(userAgent = live.userAgent, referer = live.referer, headers = live.headers)
                 }
-            }.getOrDefault(emptyList())
+            }.getOrElse {
+                failure = failure ?: UserFacingError.message(it)
+                emptyList()
+            }
             all += parsed
         }
-        all
+        val public = lives.any { it.originId == IptvOrg.ID || IptvOrg.isPublicPlaylist(it.url) }
+        if (public && guideUrls.isEmpty()) {
+            val length = http.contentLength(IptvOrg.GUIDES)
+            if (length in 1..IptvOrg.GUIDE_INDEX_LIMIT) {
+                val body = runCatching { http.textBlocking(IptvOrg.GUIDES, maxBytes = IptvOrg.GUIDE_INDEX_LIMIT) }.getOrNull()
+                if (body != null) {
+                    val ids = all.mapNotNull { it.tvgId }
+                    guideUrls += IptvOrg.guideUrls(body, ids)
+                }
+            }
+        }
+        LoadedLive(
+            channels = all,
+            guide = readGuides(guideUrls.distinct().take(3)),
+            error = when {
+                all.isNotEmpty() -> null
+                failure != null -> failure
+                else -> "直播列表是空的"
+            },
+        )
     }
 
-    suspend fun guide(lives: List<ResolvedLive>): EpgGuide = withContext(Dispatchers.IO) {
-        val guides = lives.mapNotNull { it.epgUrl }.distinct().mapNotNull { url ->
-            runCatching { XmlTvParser.parse(http.textBlocking(url, maxBytes = 8_000_000)) }.getOrNull()
+    private fun readGuides(urls: List<String>): EpgGuide {
+        val guides = urls.mapNotNull { url ->
+            runCatching { XmlTvParser.parse(http.textBlocking(url, maxBytes = 2_000_000)) }.getOrNull()
         }
-        EpgGuide(
+        return EpgGuide(
             displayNames = guides.fold(emptyMap()) { acc, guide -> acc + guide.displayNames },
             programmes = guides.flatMap { it.programmes },
         )
@@ -548,14 +661,14 @@ class BackupRepository(
     }
 
     suspend fun import(raw: String): String {
-        val urls = UrlList.extract(raw)
-        if (urls != null) {
-            val notes = urls.map { url ->
-                runCatching { sources.add(url, null, null).summary }.getOrElse { UserFacingError.message(it) }
-            }
-            return "已按网址添加 ${urls.size} 个，没有覆盖现有配置。${notes.joinToString("；")}"
-        }
         val trimmed = raw.trim().removePrefix("\uFEFF")
+        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+            val urls = UrlList.findAll(trimmed)
+            if (urls.isNotEmpty()) {
+                val lines = sources.addMany(trimmed, null, null)
+                return "已按网址添加，没有覆盖现有配置。\n${BatchAdd.message(lines)}"
+            }
+        }
         if (!trimmed.startsWith("{")) {
             throw IllegalArgumentException(UserFacingError.NOT_BACKUP)
         }

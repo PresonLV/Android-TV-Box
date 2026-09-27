@@ -39,6 +39,15 @@ object M3uParser {
         return channels
     }
 
+    /** 列表头里声明的 XMLTV 地址。iptv-org 的列表通常不带，带了就用。 */
+    fun declaredGuide(raw: String): String? {
+        val header = cleanDocument(raw).lineSequence().take(12).joinToString("\n")
+        val match = Regex("""(?:url-tvg|x-tvg-url)\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+            .find(header) ?: return null
+        val url = match.groupValues[1].trim()
+        return url.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+    }
+
     /** 媒体分片列表不是频道表。 */
     fun looksLikeSegments(channels: List<LiveChannel>): Boolean {
         if (channels.size < 3) return false

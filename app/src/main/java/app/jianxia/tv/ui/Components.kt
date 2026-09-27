@@ -88,18 +88,20 @@ fun SelectChip(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    dimmed: Boolean = false,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val idle = if (dimmed) palette.muted else palette.text
     Surface(
         onClick = onClick,
         modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(999.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) palette.accent else palette.surface,
-            contentColor = if (selected) palette.onAccent else palette.text,
+            contentColor = if (selected) palette.onAccent else idle,
             focusedContainerColor = if (selected) palette.accent else palette.surface2,
-            focusedContentColor = if (selected) palette.onAccent else palette.text,
+            focusedContentColor = if (selected) palette.onAccent else idle,
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
         border = ClickableSurfaceDefaults.border(
@@ -108,7 +110,7 @@ fun SelectChip(
             focusedDisabledBorder = Border.None,
         ),
     ) {
-        Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (selected) palette.onAccent else palette.text, fontSize = 14.sp)
+        Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (selected) palette.onAccent else idle, fontSize = 14.sp)
     }
 }
 

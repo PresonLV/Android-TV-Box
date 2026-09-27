@@ -189,9 +189,13 @@ class LanServer(
                     request.method == "GET" && route == "/api/export" -> backup.export()
                     request.method == "POST" && route == "/api/sources" -> {
                         val obj = parseObject(body)
-                        val url = obj.str("url").orEmpty()
-                        sources.add(url, obj.str("name"), obj.str("epg"))
-                        sourcesJson("已添加")
+                        val text = obj.raw("text") ?: obj.raw("url").orEmpty()
+                        batchJson(sources.addMany(text, obj.str("name"), obj.str("epg")))
+                    }
+                    request.method == "POST" && route == "/api/sources/batch" -> {
+                        val obj = parseObject(body)
+                        val text = obj.raw("text") ?: obj.raw("url").orEmpty()
+                        batchJson(sources.addMany(text, obj.str("name"), obj.str("epg")))
                     }
                     request.method == "POST" && route == "/api/sources/update" -> {
                         val obj = parseObject(body)
@@ -243,6 +247,41 @@ class LanServer(
                 write(socket, 400, "application/json", errorJson(UserFacingError.message(error)).toByteArray())
             },
         )
+    }
+
+    private suspend fun batchJson(lines: List<app.jianxia.core.backup.BatchLine>): String {
+        val message = app.jianxia.core.backup.BatchAdd.message(lines)
+        val items = sources.list()
+        return buildJsonObject {
+            put("ok", true)
+            put("message", message)
+            put("sources", buildJsonArray {
+                items.forEach { source ->
+                    add(buildJsonObject {
+                        put("id", source.id)
+                        put("name", source.name)
+                        put("url", source.url)
+                        put("kind", source.kind)
+                        put("epgUrl", source.epgUrl.orEmpty())
+                        put("enabled", source.enabled)
+                        put("note", source.note)
+                    })
+                }
+            })
+            put("results", buildJsonArray {
+                lines.forEach { line ->
+                    add(buildJsonObject {
+                        put("url", line.url)
+                        put("status", line.status)
+                        put("detail", when (line.status) {
+                            "ok" -> "成功"
+                            "exists" -> "已存在"
+                            else -> line.detail
+                        })
+                    })
+                }
+            })
+        }.toString()
     }
 
     private suspend fun sourcesJson(message: String = "ok"): String {
@@ -433,12 +472,13 @@ class LanServer(
             .swatches i{display:block;width:56px;height:36px}
             </style></head><body><main>
             <h1>简匣</h1>
-            <p>在这里粘贴接口地址。电视不内置任何片源。</p>
-            <label>名称（可选）<input id="name" placeholder="例如：家里的配置"></label>
-            <label>地址<input id="url" placeholder="https://"></label>
-            <label>节目单地址（直播可选）<input id="epg" placeholder="XMLTV 地址"></label>
+            <p>在这里粘贴接口地址。点播片源需要自己添加。可以一次粘贴很多网址：每行一个，或和说明文字混在一起。重复的会标成已存在。</p>
+            <label>名称（可选，只在添加一个地址时使用）<input id="name" placeholder="例如：家里的配置"></label>
+            <label>地址<textarea id="url" rows="5" placeholder="https:// 可以一次粘贴多个"></textarea></label>
+            <label>节目单地址（只有一个直播地址时才会用上）<input id="epg" placeholder="XMLTV 地址"></label>
             <button onclick="add()">添加</button>
             <p id="msg"></p>
+            <div id="batch"></div>
             <div id="list"></div>
             <h2>外观</h2>
             <p>和电视上的设置是同一份。选好后点保存，电视会马上换上。</p>
@@ -512,12 +552,29 @@ class LanServer(
               if(!(data.sources||[]).length) box.innerHTML = '<p>还没有接口。</p>';
             }
             function btn(text, action){ const b = document.createElement('button'); b.className='ghost'; b.textContent=text; b.onclick=action; return b; }
+            function showBatch(results){
+              const box = document.getElementById('batch');
+              box.innerHTML = '';
+              (results || []).forEach(function(item){
+                const card = document.createElement('div');
+                card.className = 'card';
+                const title = document.createElement('strong');
+                const label = item.status === 'ok' ? '成功' : (item.status === 'exists' ? '已存在' : (item.detail || '失败'));
+                title.textContent = label;
+                const meta = document.createElement('div');
+                meta.textContent = item.url || '';
+                card.appendChild(title);
+                card.appendChild(meta);
+                box.appendChild(card);
+              });
+            }
             async function add(){
               say('添加中…');
               try {
-                const data = await api('/api/sources', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:document.getElementById('name').value,url:document.getElementById('url').value,epg:document.getElementById('epg').value})});
+                const data = await api('/api/sources/batch', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:document.getElementById('name').value,text:document.getElementById('url').value,epg:document.getElementById('epg').value})});
                 document.getElementById('url').value='';
-                say(data.message && data.message.indexOf('加载失败') < 0 ? ('成功。' + data.message) : (data.message || '成功'));
+                showBatch(data.results);
+                say(data.message || '完成');
                 load();
               } catch(e){ say(friendly(e)); load().catch(function(){}); }
             }

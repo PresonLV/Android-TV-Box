@@ -53,6 +53,19 @@ class NetClient {
         }
     }
 
+    fun contentLength(url: String): Long {
+        return try {
+            val client = http.newBuilder().callTimeout(8, TimeUnit.SECONDS).build()
+            val request = Request.Builder().url(url).head().header("User-Agent", Ua.CONFIG).build()
+            client.newCall(request).execute().use { response ->
+                if (response.code !in 200..299) return Long.MAX_VALUE
+                response.header("Content-Length")?.toLongOrNull() ?: Long.MAX_VALUE
+            }
+        } catch (_: Exception) {
+            Long.MAX_VALUE
+        }
+    }
+
     fun probe(url: String): ProbeMeasure {
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return ProbeMeasure(0, 0, null, false)

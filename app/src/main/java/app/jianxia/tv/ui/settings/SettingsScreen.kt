@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jianxia.core.UserFacingError
+import app.jianxia.core.backup.BatchAdd
+import app.jianxia.core.live.IptvOrg
 import app.jianxia.core.model.AppearanceCatalog
 import app.jianxia.core.model.AppearanceItem
 import app.jianxia.tv.BuildConfig
@@ -140,8 +142,22 @@ private fun SourcesPage(onBack: () -> Unit, openCreate: Boolean = false) {
     Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("接口与直播源", color = palette.text, fontSize = 26.sp)
-            Text(message ?: "推荐先用右侧二维码，在手机上粘贴地址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+            Text(message ?: "推荐先用右侧二维码，在手机上粘贴地址。可以一次粘贴多个网址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
             TvButton("在电视上添加", primary = true) { creating = true }
+            if (sources.none { it.id == IptvOrg.ID }) {
+                TvButton("添加公共频道", modifier = Modifier.padding(top = 8.dp)) {
+                    scope.launch {
+                        val current = app.settings.state.value
+                        app.sources.applyPublicPlaylist(
+                            current.iptvOrgKind,
+                            current.iptvOrgCode,
+                            IptvOrg.label(current.iptvOrgKind, current.iptvOrgCode),
+                        )
+                        app.settings.update { it.copy(iptvOrgSeeded = true) }
+                        message = "已加入公共频道。频道列表来自 iptv-org"
+                    }
+                }
+            }
             sources.forEach { source ->
                 Panel(Modifier.padding(top = 12.dp)) {
                     Text(source.name, color = palette.text, fontSize = 18.sp)
@@ -180,8 +196,11 @@ private fun SourcesPage(onBack: () -> Unit, openCreate: Boolean = false) {
             onSave = { name, url, epg ->
                 scope.launch {
                     val result = runCatching {
-                        if (editing == null) app.sources.add(url, name, epg).summary
-                        else app.sources.update(editing!!.id, name, url, epg)
+                        if (editing == null) {
+                            BatchAdd.message(app.sources.addMany(url, name, epg))
+                        } else {
+                            app.sources.update(editing!!.id, name, url, epg)
+                        }
                     }
                     message = result.getOrElse { UserFacingError.message(it) }
                     if (result.isSuccess) {
@@ -223,7 +242,7 @@ private fun SourceDialog(initial: SourceEntity?, onDismiss: () -> Unit, onSave: 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Text(if (initial == null) "添加接口" else "编辑接口", color = palette.text, fontSize = 26.sp)
             Text(
-                "当前输入：${if (target == "url") "地址" else if (target == "epg") "节目单" else "名称"}。遥控器选下面的按键，不必用电视自带输入法。",
+                "当前输入：${if (target == "url") "地址" else if (target == "epg") "节目单" else "名称"}。地址可以一次粘贴多个网址，每行一个，或夹在说明文字里。重复的会标成已存在。",
                 color = palette.muted,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -395,9 +414,16 @@ private fun AboutPage() {
     Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         Text(
-            "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。这是一个空壳播放器：安装包里没有片源，也没有预置接口。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。",
+            "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
             color = palette.muted,
             modifier = Modifier.padding(top = 12.dp).width(720.dp),
+            lineHeight = 24.sp,
+        )
+        Text("公共频道", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
+        Text(
+            "频道列表来自 iptv-org。这些是公开的免费直播地址，简匣不把频道表打进安装包，也不提供点播片源。列表和项目主页：https://github.com/iptv-org/iptv",
+            color = palette.muted,
+            modifier = Modifier.padding(top = 8.dp).width(720.dp),
             lineHeight = 24.sp,
         )
         Text("播放器内核", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
@@ -417,6 +443,7 @@ private fun AboutPage() {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
             TvButton("打开 libVLC 源码") { licenseHint = openLicense(context, "https://code.videolan.org/videolan/vlc-android") }
             TvButton("打开 LGPL-2.1") { licenseHint = openLicense(context, "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html") }
+            TvButton("打开 iptv-org") { licenseHint = openLicense(context, "https://github.com/iptv-org/iptv") }
         }
     }
 }

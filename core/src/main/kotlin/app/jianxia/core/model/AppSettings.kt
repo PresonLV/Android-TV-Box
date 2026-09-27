@@ -48,6 +48,9 @@ data class AppSettings(
     val startupPage: String = "vod",
     val recentSearches: List<String> = emptyList(),
     val lastLiveUrl: String = "",
+    val iptvOrgSeeded: Boolean = false,
+    val iptvOrgKind: String = "country",
+    val iptvOrgCode: String = "cn",
 ) {
     fun sanitized(): AppSettings = copy(
         themeMode = when (themeMode) {
@@ -93,6 +96,11 @@ data class AppSettings(
         startupPage = if (startupPage == "live") "live" else "vod",
         recentSearches = recentSearches.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(12),
         lastLiveUrl = lastLiveUrl.trim(),
+        iptvOrgKind = when (iptvOrgKind) {
+            "category", "language" -> iptvOrgKind
+            else -> "country"
+        },
+        iptvOrgCode = iptvOrgCode.lowercase().filter { it.isLetterOrDigit() }.ifBlank { "cn" }.take(12),
     )
 
     companion object {
