@@ -16,11 +16,15 @@ import app.jianxia.tv.data.repo.LibraryRepository
 import app.jianxia.tv.data.repo.LiveRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
+import app.jianxia.core.spider.spiderBudgetMs
 import app.jianxia.tv.data.repo.SubtitleStore
+import app.jianxia.tv.data.source.SpiderCatalogFactory
+import app.jianxia.tv.spider.SpiderHub
 import app.jianxia.tv.ui.installImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 class JianXiaApp : Application() {
@@ -36,6 +40,9 @@ class JianXiaApp : Application() {
         jobs.launch {
             runCatching { container.sources.ensurePublicChannels(container.settings) }
         }
+        jobs.launch {
+            container.settings.state.collect { container.spiders.setEnabled(it.spiderEnabled) }
+        }
     }
 }
 
@@ -45,7 +52,8 @@ class AppContainer(context: Application) {
     val settings = SettingsRepository(context)
     val sources = SourceRepository(database.sources(), http)
     val library = LibraryRepository(database.library())
-    val catalog = CatalogRepository(http, sources, CatalogStore())
+    val catalog = CatalogRepository(http, sources, CatalogStore()) { settings.state.value.spiderEnabled }
+    val spiders = SpiderHub(context, http) { spiderBudgetMs(settings.state.value.searchTimeoutSec) }
     val live = LiveRepository(http)
     val douban = DoubanRepository(http, context.cacheDir)
     val danmaku = DanmakuClient(http)
@@ -54,6 +62,10 @@ class AppContainer(context: Application) {
     val backup = BackupRepository(settings, sources)
     val lan = LanServer(context, sources, backup, settings, subtitles)
     val session = PlaybackSession()
+
+    init {
+        catalog.registry().register(SpiderCatalogFactory(spiders))
+    }
     val pinyin: PinyinIme = PinyinIme.loadDefault()
 }
 

@@ -30,6 +30,8 @@ import app.jianxia.core.parser.DetectedSource
 import app.jianxia.core.parser.M3uParser
 import app.jianxia.core.parser.SourceDetector
 import app.jianxia.core.parser.TvBoxConfigParser
+import app.jianxia.core.spider.spiderBudgetMs
+import app.jianxia.core.spider.toSpiderDef
 import app.jianxia.core.parser.TxtLiveParser
 import app.jianxia.core.parser.XmlTvParser
 import app.jianxia.tv.data.db.FavoriteEntity
@@ -447,6 +449,7 @@ class CatalogRepository(
     private val http: NetClient,
     private val sources: SourceRepository,
     val store: CatalogStore,
+    private val spiderEnabled: () -> Boolean = { false },
 ) {
     private val registry = CatalogRegistry(http)
     private var cached: Pair<String, ExpandedSources>? = null
@@ -456,7 +459,8 @@ class CatalogRepository(
 
     suspend fun expand(force: Boolean = false): ExpandedSources = withContext(Dispatchers.IO) {
         val enabled = sources.list().filter { it.enabled }
-        val fingerprint = enabled.joinToString("|") { "${it.id}:${it.url}:${it.epgUrl}:${it.kind}" }
+        val spidersOn = spiderEnabled()
+        val fingerprint = enabled.joinToString("|") { "${it.id}:${it.url}:${it.epgUrl}:${it.kind}" } + ":spider=$spidersOn"
         if (!force) cached?.takeIf { it.first == fingerprint }?.second?.let { return@withContext it }
         val sites = mutableListOf<VodSiteDef>()
         val lives = mutableListOf<ResolvedLive>()
@@ -477,7 +481,12 @@ class CatalogRepository(
                             reports += SiteReport(source.id, source.name, source.name, "失败", "配置里没有点播站点")
                         }
                         config.sites.forEach { site ->
-                            val stored = site.copy(key = "${source.id}:${site.key}")
+                            val active = if (site.kind == SiteKind.SPIDER && !spidersOn) {
+                                site.copy(kind = SiteKind.UNSUPPORTED, unsupportedReason = "爬虫已关闭，可在设置里打开")
+                            } else {
+                                site
+                            }
+                            val stored = active.copy(key = "${source.id}:${active.key}")
                             sites += stored
                             val spider = site.unsupportedReason?.contains("爬虫") == true
                             when {
@@ -552,7 +561,11 @@ class CatalogRepository(
                 reports = reports,
             ).also { lastHome = it }
         }
-        val timeout = settings.searchTimeoutSec * 1000L
+        val timeout = if (selected.any { it.kind == SiteKind.SPIDER }) {
+            spiderBudgetMs(settings.searchTimeoutSec)
+        } else {
+            settings.searchTimeoutSec * 1000L
+        }
         val first = ParallelAggregator.collect(timeout, selected.map { site ->
             suspend {
                 val attempt = runCatching { registry.create(site).list(1, null) }
@@ -619,7 +632,12 @@ class CatalogRepository(
         val expanded = expand()
         val sites = expanded.sites.filter { it.searchable && it.unsupportedReason == null && it.kind != SiteKind.UNSUPPORTED }
         if (sites.isEmpty()) return SearchCatalog(emptyList(), "没有可搜索的点播站")
-        val outcome = ParallelAggregator.collect(settings.searchTimeoutSec * 1000L, sites.map { site ->
+        val timeout = if (sites.any { it.kind == SiteKind.SPIDER }) {
+            spiderBudgetMs(settings.searchTimeoutSec)
+        } else {
+            settings.searchTimeoutSec * 1000L
+        }
+        val outcome = ParallelAggregator.collect(timeout, sites.map { site ->
             suspend { registry.create(site).search(query).items }
         })
         val merged = mergeVodItems(outcome.items).take(60)
@@ -649,12 +667,7 @@ class CatalogRepository(
     suspend fun parses(): List<ParseDef> = expand().parses
 }
 
-private fun VodItem.toDef(): VodSiteDef = VodSiteDef(
-    key = sourceKey,
-    name = sourceName,
-    kind = siteKind,
-    api = api,
-)
+private fun VodItem.toDef(): VodSiteDef = toSpiderDef()
 
 data class LoadedLive(
     val channels: List<LiveChannel> = emptyList(),

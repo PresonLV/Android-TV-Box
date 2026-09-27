@@ -2,12 +2,19 @@ package app.jianxia.core.model
 
 import kotlinx.serialization.Serializable
 
-/** 点播站点实现类型。爬虫类站点保留在列表里，但标记为暂不支持。 */
+/** 点播站点实现类型。爬虫默认不执行，打开设置后才按 JAR 或 JS 加载。 */
 @Serializable
 enum class SiteKind {
     MACCMS_XML,
     MACCMS_JSON,
+    SPIDER,
     UNSUPPORTED,
+}
+
+@Serializable
+enum class SpiderMode {
+    JAR,
+    JS,
 }
 
 @Serializable
@@ -23,6 +30,9 @@ data class VodSiteDef(
     val userAgent: String = "",
     val referer: String = "",
     val headers: Map<String, String> = emptyMap(),
+    val spiderMode: SpiderMode? = null,
+    val spiderExt: String = "",
+    val spiderJar: String = "",
 )
 
 data class LiveSourceDef(
@@ -48,6 +58,7 @@ data class TvBoxConfig(
     val lives: List<LiveSourceDef>,
     val parses: List<ParseDef>,
     val wallpaper: String? = null,
+    val spider: String = "",
 )
 
 @Serializable
@@ -82,6 +93,9 @@ data class VodItem(
     val userAgent: String = "",
     val referer: String = "",
     val headers: Map<String, String> = emptyMap(),
+    val spiderMode: String = "",
+    val spiderExt: String = "",
+    val spiderJar: String = "",
 )
 
 data class VodClass(
@@ -190,6 +204,8 @@ data class SiteReport(
 )
 
 object HomeSiteSummary {
-    fun message(total: Int, usable: Int, spiders: Int, failed: Int): String =
-        "共 $total 个站点：$usable 个可用，$spiders 个是爬虫（JAR/JS）暂不支持，$failed 个加载失败"
+    fun message(total: Int, usable: Int, spiders: Int, failed: Int): String {
+        val spiderText = if (spiders > 0) "，$spiders 个是爬虫（JAR/JS）未打开" else ""
+        return "共 $total 个站点：$usable 个可用$spiderText，$failed 个加载失败"
+    }
 }

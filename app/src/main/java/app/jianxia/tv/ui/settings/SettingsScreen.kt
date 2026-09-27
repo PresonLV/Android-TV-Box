@@ -109,6 +109,7 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
         }) { scope.launch { app.settings.update { it.resetSection("lines") } } }
         "backup" -> BackupPage()
         "enhance" -> EnhancePage()
+        "spider" -> SpiderGate { page = "root" }
         "about" -> AboutPage()
         else -> SettingsMenu(BuildConfig.VERSION_NAME) { page = it }
     }
@@ -477,7 +478,44 @@ private fun EnhancePage() {
         TvButton("恢复显示默认", modifier = Modifier.padding(top = 16.dp)) {
             scope.launch { app.settings.update { it.resetSection("enhance") } }
         }
-        Text("恢复默认不会清掉已填写的弹幕地址、广告规则和代理。", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
+        Text("恢复默认不会清掉已填写的弹幕地址、广告规则和代理，但会关闭远程爬虫。", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+@Composable
+private fun SpiderGate(onCancel: () -> Unit) {
+    val app = LocalApp.current
+    val palette = LocalPalette.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+        Text("远程爬虫", color = palette.text, fontSize = 26.sp)
+        Text(
+            "这会下载并运行配置里的远程代码，可能访问网络和应用数据。只打开你信任的配置。恶意爬虫可以读取本机保存的数据，并发起网络请求。默认关闭；关掉之后会立刻停止执行，首页和搜索不再请求这些站点。",
+            color = palette.muted,
+            modifier = Modifier.padding(top = 12.dp).width(720.dp),
+            lineHeight = 24.sp,
+        )
+        if (settings.spiderEnabled) {
+            Text("当前已打开。JAR 和 JS 站点会计入首页和搜索。", color = palette.text, modifier = Modifier.padding(top = 16.dp))
+            TvButton("关闭远程爬虫", primary = true, modifier = Modifier.padding(top = 12.dp)) {
+                scope.launch {
+                    app.settings.update { it.copy(spiderEnabled = false) }
+                    app.spiders.setEnabled(false)
+                }
+            }
+        } else {
+            Text("还没有打开。确认后才会下载配置里的 JAR 或 JS。", color = palette.text, modifier = Modifier.padding(top = 16.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+                TvButton("仍然打开", primary = true) {
+                    scope.launch {
+                        app.settings.update { it.copy(spiderEnabled = true) }
+                        app.spiders.setEnabled(true)
+                    }
+                }
+                TvButton("取消", onClick = onCancel)
+            }
+        }
     }
 }
 
@@ -489,7 +527,7 @@ private fun AboutPage() {
     Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         Text(
-            "TV NET ${app.jianxia.tv.BuildConfig.VERSION_NAME}。显示名是 TV NET，包名仍是 app.jianxia.tv，已安装的版本可以直接升级，原有接口和设置会保留。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
+            "TV NET ${app.jianxia.tv.BuildConfig.VERSION_NAME}。显示名是 TV NET，包名仍是 app.jianxia.tv，已安装的版本可以直接升级，原有接口和设置会保留。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR / JS 爬虫默认关闭。要在设置里确认后才会下载并运行配置中的远程代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
             color = palette.muted,
             modifier = Modifier.padding(top = 12.dp).width(720.dp),
             lineHeight = 24.sp,

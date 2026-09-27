@@ -33,8 +33,8 @@ class ConfigDecoderTest {
             payload.toByteArray()
         val decoded = ConfigDecoder.decode(jpeg, "image/jpeg")
         val config = TvBoxConfigParser.parse(decoded)
-        assertEquals(SiteKind.UNSUPPORTED, config.sites.single().kind)
-        assertTrue(config.sites.single().unsupportedReason!!.contains("JAR/JS"))
+        assertEquals(SiteKind.SPIDER, config.sites.single().kind)
+        assertNull(config.sites.single().unsupportedReason)
     }
 
     @Test
@@ -63,7 +63,7 @@ class ConfigDecoderTest {
         val config = TvBoxConfigParser.parse(raw, "https://example.test/box/cfg.json")
         assertEquals("https://example.test/box/vod", config.sites[0].api)
         assertEquals("csp_Demo", config.sites[1].api)
-        assertEquals(SiteKind.UNSUPPORTED, config.sites[1].kind)
+        assertEquals(SiteKind.SPIDER, config.sites[1].kind)
         assertEquals("https://example.test/box/live.m3u", config.lives.single().url)
         assertEquals("https://example.test/epg.xml", config.lives.single().epgUrl)
     }

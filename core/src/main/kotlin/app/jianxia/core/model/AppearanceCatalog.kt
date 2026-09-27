@@ -215,6 +215,7 @@ fun AppSettings.resetSection(section: String): AppSettings {
             subtitleSize = fresh.subtitleSize,
             subtitlePosition = fresh.subtitlePosition,
             subtitleOffsetMs = fresh.subtitleOffsetMs,
+            spiderEnabled = false,
         )
         else -> this
     }

@@ -70,6 +70,7 @@ data class AppSettings(
     val subtitleSize: String = "medium",
     val subtitlePosition: String = "bottom",
     val subtitleOffsetMs: Int = 0,
+    val spiderEnabled: Boolean = false,
 ) {
     fun sanitized(): AppSettings = copy(
         themeMode = when (themeMode) {

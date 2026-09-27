@@ -8,14 +8,17 @@ import app.jianxia.core.line.rankLines
 import app.jianxia.core.model.AppSettings
 import app.jianxia.core.subtitle.SubCue
 import app.jianxia.core.subtitle.Subtitles
+import app.jianxia.core.UserFacingError
 import app.jianxia.core.model.LineProbe
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.ParseDef
+import app.jianxia.core.model.SiteKind
 import app.jianxia.core.parser.extractMediaUrl
 import app.jianxia.core.parser.isDirectMediaUrl
 import app.jianxia.core.parser.urlEncode
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.data.net.NetClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -86,7 +89,9 @@ data class OverlayUi(
 
 private data class Candidate(
     val id: String,
+    val sourceKey: String,
     val sourceName: String,
+    val siteKind: SiteKind,
     val lineName: String,
     val episodeName: String,
     val url: String,
@@ -94,6 +99,13 @@ private data class Candidate(
     val userAgent: String = "",
     val referer: String = "",
     val headers: Map<String, String> = emptyMap(),
+)
+
+private data class ResolvedMedia(
+    val url: String,
+    val userAgent: String,
+    val referer: String,
+    val headers: Map<String, String>,
 )
 
 class PlayerViewModel(private val app: AppContainer) : ViewModel() {
@@ -109,7 +121,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private var episodeIndex = 0
     private var current: Candidate? = null
     private var parses: List<ParseDef> = emptyList()
-    private val resolved = mutableMapOf<String, String>()
+    private val resolved = mutableMapOf<String, ResolvedMedia>()
     private val probes = mutableMapOf<String, LineProbe>()
     private var ranked: List<String> = emptyList()
     private val failed = mutableSetOf<String>()
@@ -454,7 +466,9 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 val episode = line.episodes.getOrNull(index) ?: return@mapNotNull null
                 Candidate(
                     id = "${variant.sourceKey}::${line.name}",
+                    sourceKey = variant.sourceKey,
                     sourceName = variant.sourceName,
+                    siteKind = variant.siteKind,
                     lineName = line.name,
                     episodeName = episode.name,
                     url = episode.url,
@@ -495,23 +509,29 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         current = candidate
         introApplied = false
         viewModelScope.launch {
-            val url = resolve(candidate)
+            val media = try {
+                resolve(candidate)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                _ui.update { it.copy(hint = UserFacingError.message(error)) }
+                return@launch
+            }
             if (token != playToken) return@launch
             val settings = app.settings.state.value
             val open = StreamOpen(
-                url = url,
-                userAgent = candidate.userAgent,
-                referer = candidate.referer,
-                headers = candidate.headers,
+                url = media.url,
+                userAgent = media.userAgent,
+                referer = media.referer,
+                headers = media.headers,
                 resumeMs = resumeMs,
                 speed = speed,
             )
             rawOpen = open
             val (agent, headerMap) = open.requestHeaders()
             val playbackUrl = if (settings.skipHlsAds) {
-                app.hls.wrap(url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
+                app.hls.wrap(media.url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
             } else {
-                url
+                media.url
             }
             withContext(Dispatchers.Main) {
                 if (token != playToken) return@withContext
@@ -529,17 +549,36 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         }
     }
 
-    private suspend fun resolve(candidate: Candidate): String {
+    private suspend fun resolve(candidate: Candidate): ResolvedMedia {
         resolved[candidate.id]?.let { return it }
-        val url = resolvePlayUrl(candidate.url, parses, app.http)
-        resolved[candidate.id] = url
-        return url
+        var url = candidate.url
+        var userAgent = candidate.userAgent
+        var referer = candidate.referer
+        var headers = candidate.headers
+        if (candidate.siteKind == SiteKind.SPIDER && app.spiders.enabled) {
+            val def = app.catalog.expand().sites.firstOrNull { it.key == candidate.sourceKey }
+            if (def != null && def.kind == SiteKind.SPIDER) {
+                val play = app.spiders.play(def, candidate.lineName, candidate.url)
+                if (play.url.isNotBlank()) {
+                    url = play.url
+                    if (play.userAgent.isNotBlank()) userAgent = play.userAgent
+                    if (play.referer.isNotBlank()) referer = play.referer
+                    headers = play.headers + headers
+                }
+                if (play.parse == 1 && !isDirectMediaUrl(url)) {
+                    url = resolvePlayUrl(url, parses, app.http)
+                }
+            }
+        } else {
+            url = resolvePlayUrl(url, parses, app.http)
+        }
+        return ResolvedMedia(url, userAgent, referer, headers).also { resolved[candidate.id] = it }
     }
 
     private suspend fun probeAll(list: List<Candidate>): List<LineProbe> = coroutineScope {
         list.map { candidate ->
             async(Dispatchers.IO) {
-                val url = runCatching { resolve(candidate) }.getOrDefault(candidate.url)
+                val url = runCatching { resolve(candidate).url }.getOrDefault(candidate.url)
                 val measure = app.http.probe(url)
                 LineProbe(candidate.id, measure.connectMs, measure.firstByteMs, measure.resolutionHeight, measure.ok)
             }

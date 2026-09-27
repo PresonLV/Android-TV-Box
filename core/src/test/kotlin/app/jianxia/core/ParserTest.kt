@@ -47,8 +47,10 @@ class ParserTest {
         assertEquals(SiteKind.MACCMS_JSON, config.sites[1].kind)
         assertFalse(config.sites[0].quickSearch)
         assertTrue(config.sites[1].quickSearch)
-        assertEquals(SiteKind.UNSUPPORTED, config.sites[2].kind)
-        assertTrue(config.sites[2].unsupportedReason!!.contains("JAR/JS"))
+        assertEquals(SiteKind.SPIDER, config.sites[2].kind)
+        assertEquals(app.jianxia.core.model.SpiderMode.JAR, config.sites[2].spiderMode)
+        assertEquals("x", config.sites[2].spiderExt)
+        assertNull(config.sites[2].unsupportedReason)
         assertEquals(SiteKind.UNSUPPORTED, config.sites[3].kind)
         assertEquals("直播", config.lives.single().name)
         assertEquals("https://example.test/epg.xml", config.lives.single().epgUrl)
@@ -182,13 +184,15 @@ class MergeRankTest {
     @Test
     fun homeSummaryCountsSpidersSeparatelyFromFailures() {
         assertEquals(
-            "共 53 个站点：9 个可用，44 个是爬虫（JAR/JS）暂不支持，3 个加载失败",
+            "共 53 个站点：9 个可用，44 个是爬虫（JAR/JS）未打开，3 个加载失败",
             HomeSiteSummary.message(53, 9, 44, 3),
         )
         assertEquals(
-            "共 47 个站点：0 个可用，47 个是爬虫（JAR/JS）暂不支持，0 个加载失败",
+            "共 47 个站点：0 个可用，47 个是爬虫（JAR/JS）未打开，0 个加载失败",
             HomeSiteSummary.message(47, 0, 47, 0),
         )
+        assertEquals("共 2 个站点：2 个可用，0 个加载失败", HomeSiteSummary.message(2, 2, 0, 0))
+        assertFalse(AppSettings().spiderEnabled)
     }
 
     @Test
@@ -310,7 +314,8 @@ class MergeRankTest {
         assertEquals("https://example.test/", site.referer)
         assertEquals("a=b", site.headers["Cookie"])
         assertFalse(site.headers.keys.any { it.equals("User-Agent", true) || it.equals("Referer", true) })
-        assertEquals(SiteKind.UNSUPPORTED, config.sites.first { it.key == "csp_spider" }.kind)
+        assertEquals(SiteKind.SPIDER, config.sites.first { it.key == "csp_spider" }.kind)
+        assertNull(config.sites.first { it.key == "csp_spider" }.unsupportedReason)
         val live = config.lives.single()
         assertEquals("LiveUA", live.userAgent)
         assertEquals("https://live.example/", live.referer)

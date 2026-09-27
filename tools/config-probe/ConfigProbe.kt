@@ -44,14 +44,17 @@ private fun analyze(finalUrl: String, bytes: ByteArray, contentType: String?) {
             val byType = linkedMapOf<String, Int>()
             config.sites.forEach { site ->
                 val label = when {
-                    site.unsupportedReason?.contains("爬虫") == true -> "type3"
+                    site.kind == SiteKind.SPIDER -> "type3-${site.spiderMode?.name ?: "?"}"
+                    site.unsupportedReason?.contains("爬虫") == true -> "type3-off"
                     site.kind == SiteKind.MACCMS_XML -> "type0"
                     site.kind == SiteKind.MACCMS_JSON -> "type1"
                     else -> site.unsupportedReason ?: site.kind.name
                 }
                 byType[label] = (byType[label] ?: 0) + 1
             }
-            val usable = config.sites.filter { it.unsupportedReason == null && it.kind != SiteKind.UNSUPPORTED }
+            val usable = config.sites.filter {
+                it.unsupportedReason == null && it.kind != SiteKind.UNSUPPORTED && it.kind != SiteKind.SPIDER
+            }
             println("sites=${config.sites.size} lives=${config.lives.size} parses=${config.parses.size} usable=${usable.size}")
             println("breakdown=$byType")
             val reasons = config.sites.mapNotNull { it.unsupportedReason }.groupingBy { it }.eachCount()

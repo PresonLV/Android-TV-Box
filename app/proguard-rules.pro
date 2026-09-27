@@ -21,3 +21,7 @@
 -keep class okhttp3.dnsoverhttps.** { *; }
 -dontwarn org.jsoup.**
 -dontwarn kotlinx.serialization.**
+
+-keep class com.github.catvod.** { *; }
+-keep class com.quickjs.** { *; }
+-dontwarn com.quickjs.**

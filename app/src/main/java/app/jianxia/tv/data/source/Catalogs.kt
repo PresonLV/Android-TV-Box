@@ -9,7 +9,10 @@ import app.jianxia.core.parser.MacCmsXmlParser
 import app.jianxia.core.parser.macCmsBrowseActions
 import app.jianxia.core.parser.macCmsUrl
 import app.jianxia.tv.data.net.NetClient
+import app.jianxia.tv.spider.SpiderHub
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 interface VodCatalog {
     val def: VodSiteDef
@@ -25,7 +28,6 @@ fun interface CatalogFactory {
 class CatalogRegistry(private val http: NetClient) {
     private val factories = mutableListOf<CatalogFactory>(MacCmsCatalogFactory())
 
-    /** 以后接入 JAR/JS 爬虫时，把工厂插到最前面即可。 */
     fun register(factory: CatalogFactory) {
         factories.add(0, factory)
     }
@@ -35,6 +37,36 @@ class CatalogRegistry(private val http: NetClient) {
             factory.create(def, http)?.let { return it }
         }
         return UnsupportedVodCatalog(def)
+    }
+}
+
+class SpiderCatalogFactory(private val hub: SpiderHub) : CatalogFactory {
+    override fun create(def: VodSiteDef, http: NetClient): VodCatalog? {
+        if (def.kind != SiteKind.SPIDER || def.unsupportedReason != null || !hub.enabled) return null
+        return SpiderCatalog(def, hub)
+    }
+}
+
+class SpiderCatalog(
+    override val def: VodSiteDef,
+    private val hub: SpiderHub,
+) : VodCatalog {
+    override suspend fun list(page: Int, typeId: String?): VodPage = guard {
+        if (typeId.isNullOrBlank()) hub.home(def) else hub.category(def, typeId, page)
+    }
+
+    override suspend fun search(keyword: String): VodPage = guard { hub.search(def, keyword) }
+
+    override suspend fun detail(id: String): VodItem? = guard { hub.detail(def, id) }
+
+    private suspend fun <T> guard(block: () -> T): T = withContext(Dispatchers.IO) {
+        if (!hub.enabled) throw IllegalStateException("爬虫已关闭")
+        try {
+            block()
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            throw IllegalStateException(error.message ?: "爬虫执行失败", error)
+        }
     }
 }
 
