@@ -18,8 +18,14 @@
 -dontwarn org.videolan.**
 
 -dontwarn okhttp3.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
+-keep class okio.** { *; }
 -keep class okhttp3.dnsoverhttps.** { *; }
+-keep class org.jsoup.** { *; }
 -dontwarn org.jsoup.**
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**
 -dontwarn kotlinx.serialization.**
 
 -keep class com.github.catvod.** { *; }

@@ -1,6 +1,7 @@
 package app.jianxia.tv.ui
 
 import android.content.Context
+import app.jianxia.tv.data.net.ResilientDns
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
@@ -18,6 +19,7 @@ fun installImageLoader(context: Context) {
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
         .followRedirects(true)
+        .dns(ResilientDns())
         .addInterceptor { chain ->
             val request = chain.request()
             val host = request.url.host
