@@ -47,6 +47,7 @@ import app.jianxia.tv.ui.detail.DetailScreen
 import app.jianxia.tv.ui.home.HomeScreen
 import app.jianxia.tv.ui.library.LibraryScreen
 import app.jianxia.tv.ui.live.LiveScreen
+import app.jianxia.tv.ui.douban.DoubanScreen
 import app.jianxia.tv.ui.player.PlayerScreen
 import app.jianxia.tv.ui.search.SearchScreen
 import app.jianxia.tv.ui.settings.SettingsScreen
@@ -114,9 +115,23 @@ fun AppRoot() {
                         onOpen = { nav.navigate("detail/${navKey(it)}") },
                         onPlay = { nav.navigate("player") },
                         onSettings = { nav.navigate("settings/add") },
+                        onDouban = { nav.navigate("douban") },
+                        onSearch = { query ->
+                            app.session.pendingSearch = query
+                            nav.navigate("search")
+                        },
                     )
                 }
                 composable("search") { SearchScreen(onOpen = { nav.navigate("detail/${navKey(it)}") }) }
+                composable("douban") {
+                    DoubanScreen(
+                        onSearch = { query ->
+                            app.session.pendingSearch = query
+                            nav.navigate("search")
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
                 composable("live") { LiveScreen() }
                 composable("favorites") { LibraryScreen(favorites = true, onOpen = { nav.navigate("detail/${navKey(it)}") }) }
                 composable("history") { LibraryScreen(favorites = false, onOpen = { nav.navigate("detail/${navKey(it)}") }, onPlay = { nav.navigate("player") }) }

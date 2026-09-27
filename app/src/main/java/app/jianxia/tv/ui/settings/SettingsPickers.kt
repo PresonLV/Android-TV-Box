@@ -82,6 +82,7 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
             SettingRow("外观", "${settings.modeLabel()} · ${settings.accentLabel()} · ${settings.wallpaperLabel()}") { onOpen("look") }
             SettingRow("首页", "${settings.layoutLabel()} · ${settings.posterLabel()}海报 · ${settings.homeRows.count { it.visible }} 行") { onOpen("home") }
             SettingRow("播放", "${settings.engineLabel()} · ${settings.speedLabel()} · ${settings.aspectLabel()}") { onOpen("play") }
+            SettingRow("豆瓣与播放增强", if (settings.skipHlsAds) "去广告开" else "去广告关") { onOpen("enhance") }
             SettingRow("接口与线路", if (settings.autoLineSelect) "自动选线开" else "自动选线关") { onOpen("lines") }
             SettingRow("数据与备份", "导入、导出") { onOpen("backup") }
             SettingRow("关于", versionName) { onOpen("about") }

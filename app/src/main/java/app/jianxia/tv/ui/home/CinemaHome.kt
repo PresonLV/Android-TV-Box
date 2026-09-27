@@ -62,6 +62,8 @@ import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.db.FavoriteEntity
 import app.jianxia.tv.data.db.HistoryEntity
 import app.jianxia.tv.data.repo.HomeCatalog
+import app.jianxia.tv.ui.douban.DoubanHeroLine
+import app.jianxia.tv.ui.douban.DoubanHomeRows
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.ProvideCinema
@@ -107,6 +109,8 @@ internal fun CinemaHome(
     onPlay: () -> Unit,
     onSettings: () -> Unit,
     onRetry: () -> Unit,
+    onDouban: () -> Unit,
+    onSearch: (String) -> Unit,
 ) {
     val bus = remember { CinemaBus() }
     val playScope = rememberCoroutineScope()
@@ -132,6 +136,7 @@ internal fun CinemaHome(
                         if (loading && catalog == null) {
                             CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(start = 28.dp, top = 16.dp))
                         }
+                        DoubanHomeRows(onDouban, onSearch)
                         settings.homeRows.filter { it.visible }.forEach { row ->
                             when (row.id) {
                                 "history" -> if (history.isNotEmpty()) {
@@ -322,6 +327,7 @@ private fun CinemaHero(bus: CinemaBus, reduceMotion: Boolean) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    DoubanHeroLine(item?.title, item?.year)
                     val tags = listOfNotNull(item?.year, item?.area, item?.typeName, item?.remarks).filter { it.isNotBlank() }
                     if (tags.isNotEmpty()) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {

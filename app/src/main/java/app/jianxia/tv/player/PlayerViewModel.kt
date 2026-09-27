@@ -2,7 +2,12 @@ package app.jianxia.tv.player
 
 import android.content.Context
 import android.widget.FrameLayout
+import app.jianxia.core.danmaku.DanmakuCue
+import app.jianxia.core.hls.HlsAdFilter
 import app.jianxia.core.line.rankLines
+import app.jianxia.core.model.AppSettings
+import app.jianxia.core.subtitle.SubCue
+import app.jianxia.core.subtitle.Subtitles
 import app.jianxia.core.model.LineProbe
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.ParseDef
@@ -29,7 +34,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class PlayerPanel { Hidden, Main, Lines, Speed, Aspect, Skip, Engine }
+enum class PlayerPanel { Hidden, Main, Lines, Speed, Aspect, Skip, Engine, Danmaku, Subtitle }
 
 data class LineOption(val id: String, val label: String, val detail: String?)
 
@@ -59,6 +64,26 @@ data class PlayerUi(
     val probing: Boolean = false,
 )
 
+data class OverlayUi(
+    val danmaku: List<DanmakuCue> = emptyList(),
+    val danmakuOn: Boolean = true,
+    val danmakuNote: String = "",
+    val subtitles: List<SubCue> = emptyList(),
+    val offsetMs: Int = 0,
+    val size: String = "medium",
+    val position: String = "bottom",
+    val choice: String = "off",
+    val files: List<Pair<String, String>> = emptyList(),
+    val embedded: List<EmbeddedTrack> = emptyList(),
+    val nativeSubtitle: Boolean = false,
+    val subtitleNote: String = "",
+    val opacity: Int = 80,
+    val font: String = "medium",
+    val speed: String = "medium",
+    val density: Int = 60,
+    val area: String = "half",
+)
+
 private data class Candidate(
     val id: String,
     val sourceName: String,
@@ -74,6 +99,8 @@ private data class Candidate(
 class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private val _ui = MutableStateFlow(PlayerUi())
     val ui: StateFlow<PlayerUi> = _ui.asStateFlow()
+    private val _overlay = MutableStateFlow(OverlayUi())
+    val overlay: StateFlow<OverlayUi> = _overlay.asStateFlow()
 
     private var host: PlaybackHost? = null
     private var fallback: EngineFallback? = null
@@ -104,6 +131,8 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private var countdownAt = 0L
     private var attached = false
     private var playToken = 0
+    private var rawOpen: StreamOpen? = null
+    private var subtitleChoice = "off"
 
     fun attach(context: Context) {
         if (host != null) return
@@ -118,6 +147,18 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         created.setEngine(kernel, software)
         created.setSpeed(speed)
         created.setAspect(aspect)
+        _overlay.value = OverlayUi(
+            danmakuOn = settings.danmakuEnabled,
+            offsetMs = settings.subtitleOffsetMs,
+            size = settings.subtitleSize,
+            position = settings.subtitlePosition,
+            opacity = settings.danmakuOpacity,
+            font = settings.danmakuFont,
+            speed = settings.danmakuSpeed,
+            density = settings.danmakuDensity,
+            area = settings.danmakuArea,
+            files = app.subtitles.list().map { file -> file.absolutePath to file.name },
+        )
         created.listener = object : PlaybackHost.Listener {
             override fun onReady() {
                 suppressEnd = false
@@ -239,7 +280,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     fun openExternal(context: Context) {
-        val open = host?.currentOpen
+        val open = rawOpen ?: host?.currentOpen
         if (open == null || open.url.isBlank()) {
             _ui.update { it.copy(hint = "没有可打开的地址") }
             return
@@ -263,6 +304,65 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         val key = item?.key ?: return
         viewModelScope.launch { app.library.saveSkip(key, introMs, outroMs) }
         _ui.update { it.copy(introSec = introSec, outroSec = outroSec, hint = "已记住这部片子的片头片尾") }
+    }
+
+    fun toggleDanmaku() {
+        val next = !_overlay.value.danmakuOn
+        _overlay.update { it.copy(danmakuOn = next) }
+        viewModelScope.launch { app.settings.update { settings -> settings.copy(danmakuEnabled = next) } }
+    }
+
+    fun setDanmaku(opacity: Int? = null, font: String? = null, speed: String? = null, density: Int? = null, area: String? = null) {
+        viewModelScope.launch {
+            app.settings.update { current ->
+                current.copy(
+                    danmakuOpacity = opacity ?: current.danmakuOpacity,
+                    danmakuFont = font ?: current.danmakuFont,
+                    danmakuSpeed = speed ?: current.danmakuSpeed,
+                    danmakuDensity = density ?: current.danmakuDensity,
+                    danmakuArea = area ?: current.danmakuArea,
+                )
+            }
+            val settings = app.settings.state.value
+            _overlay.update {
+                it.copy(
+                    opacity = settings.danmakuOpacity,
+                    font = settings.danmakuFont,
+                    speed = settings.danmakuSpeed,
+                    density = settings.danmakuDensity,
+                    area = settings.danmakuArea,
+                )
+            }
+            if (density != null) loadDanmaku(app.settings.state.value)
+        }
+    }
+
+    fun chooseSubtitle(choice: String) {
+        subtitleChoice = choice
+        viewModelScope.launch(Dispatchers.IO) {
+            applySubtitle(choice)
+            withContext(Dispatchers.Main) { publishOverlay() }
+        }
+    }
+
+    fun nudgeSubtitle(deltaMs: Int) {
+        val next = (_overlay.value.offsetMs + deltaMs).coerceIn(-60_000, 60_000)
+        host?.setSubtitleOffset(next.toLong())
+        _overlay.update { it.copy(offsetMs = next) }
+        viewModelScope.launch { app.settings.update { it.copy(subtitleOffsetMs = next) } }
+    }
+
+    fun setSubtitleLook(size: String? = null, position: String? = null) {
+        viewModelScope.launch {
+            app.settings.update { current ->
+                current.copy(
+                    subtitleSize = size ?: current.subtitleSize,
+                    subtitlePosition = position ?: current.subtitlePosition,
+                )
+            }
+            val settings = app.settings.state.value
+            _overlay.update { it.copy(size = settings.subtitleSize, position = settings.subtitlePosition) }
+        }
     }
 
     fun cancelCountdown() {
@@ -397,20 +497,30 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         viewModelScope.launch {
             val url = resolve(candidate)
             if (token != playToken) return@launch
+            val settings = app.settings.state.value
+            val open = StreamOpen(
+                url = url,
+                userAgent = candidate.userAgent,
+                referer = candidate.referer,
+                headers = candidate.headers,
+                resumeMs = resumeMs,
+                speed = speed,
+            )
+            rawOpen = open
+            val (agent, headerMap) = open.requestHeaders()
+            val playbackUrl = if (settings.skipHlsAds) {
+                app.hls.wrap(url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
+            } else {
+                url
+            }
             withContext(Dispatchers.Main) {
                 if (token != playToken) return@withContext
                 target.setAspect(aspect)
-                target.play(
-                    StreamOpen(
-                        url = url,
-                        userAgent = candidate.userAgent,
-                        referer = candidate.referer,
-                        headers = candidate.headers,
-                        resumeMs = resumeMs,
-                        speed = speed,
-                    ),
-                )
+                target.play(open.copy(url = playbackUrl))
+                if (subtitleChoice.startsWith("embedded:")) target.selectEmbedded(subtitleChoice.removePrefix("embedded:"))
             }
+            loadDanmaku(settings)
+            if (subtitleChoice.startsWith("file:")) applySubtitle(subtitleChoice)
             lastMove = System.currentTimeMillis()
             lastPos = resumeMs
             bufferingSince = 0
@@ -534,6 +644,9 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                         engine = target.engine.wire(),
                     )
                 }
+                if (ticks % 4 == 0 && target.hasFirstFrame) {
+                    _overlay.update { it.copy(embedded = target.embeddedTracks(), files = app.subtitles.list().map { file -> file.absolutePath to file.name }) }
+                }
                 ticks += 1
                 if (ticks % 10 == 0) saveHistory()
             }
@@ -595,6 +708,91 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             durationMs = host?.durationMs ?: 0,
             lineId = candidate.id,
         )
+    }
+
+    private suspend fun loadDanmaku(settings: AppSettings) {
+        val title = item?.title.orEmpty()
+        val episode = current?.episodeName.orEmpty()
+        if (settings.danmakuApiUrl.isBlank()) {
+            _overlay.update { it.copy(danmaku = emptyList(), danmakuNote = if (settings.danmakuEnabled) "未配置弹幕接口" else "") }
+            return
+        }
+        _overlay.update { it.copy(danmakuNote = "正在匹配弹幕") }
+        val cues = withContext(Dispatchers.IO) {
+            app.danmaku.load(settings, title, episode, episodeIndex)
+        }
+        if (current?.episodeName != episode) return
+        _overlay.update {
+            it.copy(
+                danmaku = cues,
+                danmakuOn = settings.danmakuEnabled,
+                danmakuNote = when {
+                    cues.isNotEmpty() -> "${cues.size} 条弹幕"
+                    else -> "没有匹配到弹幕"
+                },
+            )
+        }
+    }
+
+    private fun applySubtitle(choice: String) {
+        val playback = host
+        val settings = app.settings.state.value
+        when {
+            choice == "off" || playback == null -> {
+                playback?.selectEmbedded(null)
+                _overlay.update { it.copy(subtitles = emptyList(), choice = "off", nativeSubtitle = false, subtitleNote = "") }
+            }
+            choice.startsWith("embedded:") -> {
+                playback.selectEmbedded(choice.removePrefix("embedded:"))
+                playback.setSubtitleOffset(settings.subtitleOffsetMs.toLong())
+                _overlay.update { it.copy(subtitles = emptyList(), choice = choice, nativeSubtitle = true, subtitleNote = "正在使用内嵌字幕") }
+            }
+            choice.startsWith("file:") -> {
+                val path = choice.removePrefix("file:")
+                val file = java.io.File(path)
+                val lower = file.name.lowercase()
+                val bitmap = lower.endsWith(".sup") || lower.endsWith(".pgs")
+                if (bitmap) {
+                    if (playback.engine == EngineId.Vlc && playback.attachExternalSubtitle(path)) {
+                        playback.setSubtitleOffset(settings.subtitleOffsetMs.toLong())
+                        _overlay.update { it.copy(subtitles = emptyList(), choice = choice, nativeSubtitle = true, subtitleNote = "PGS 由 VLC 渲染") }
+                    } else {
+                        _overlay.update { it.copy(subtitleNote = "PGS 外挂请使用 VLC 内核", choice = choice, subtitles = emptyList(), nativeSubtitle = false) }
+                    }
+                    return
+                }
+                val parsed = runCatching { Subtitles.parse(file.name, file.readText()) }.getOrDefault(emptyList())
+                val styled = lower.endsWith(".ass") || lower.endsWith(".ssa")
+                if (styled && playback.engine == EngineId.Vlc && playback.attachExternalSubtitle(path)) {
+                    playback.setSubtitleOffset(settings.subtitleOffsetMs.toLong())
+                    _overlay.update {
+                        it.copy(
+                            subtitles = emptyList(),
+                            choice = choice,
+                            nativeSubtitle = true,
+                            subtitleNote = "ASS 由 VLC 渲染。字号和位置以字幕文件为准，偏移仍然有效。",
+                        )
+                    }
+                } else {
+                    playback.selectEmbedded(null)
+                    _overlay.update {
+                        it.copy(
+                            subtitles = parsed,
+                            choice = choice,
+                            nativeSubtitle = false,
+                            subtitleNote = if (parsed.isEmpty()) "没有读出字幕" else "外挂字幕 ${parsed.size} 条",
+                            offsetMs = settings.subtitleOffsetMs,
+                            size = settings.subtitleSize,
+                            position = settings.subtitlePosition,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun publishOverlay() {
+        _overlay.update { it.copy(choice = subtitleChoice) }
     }
 
     override fun onCleared() {

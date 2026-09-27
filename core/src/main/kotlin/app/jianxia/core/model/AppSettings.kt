@@ -51,6 +51,25 @@ data class AppSettings(
     val iptvOrgSeeded: Boolean = false,
     val iptvOrgKind: String = "country",
     val iptvOrgCode: String = "cn",
+    val doubanEnabled: Boolean = true,
+    val doubanDataProxy: String = "direct",
+    val doubanDataProxyUrl: String = "",
+    val doubanImageProxy: String = "img3",
+    val doubanImageProxyUrl: String = "",
+    val skipHlsAds: Boolean = true,
+    val hlsAdRules: String = "",
+    val danmakuApiUrl: String = "",
+    val danmakuApiToken: String = "",
+    val danmakuEnabled: Boolean = true,
+    val danmakuOpacity: Int = 80,
+    val danmakuFont: String = "medium",
+    val danmakuSpeed: String = "medium",
+    val danmakuDensity: Int = 60,
+    val danmakuArea: String = "half",
+    val danmakuBlockWords: String = "",
+    val subtitleSize: String = "medium",
+    val subtitlePosition: String = "bottom",
+    val subtitleOffsetMs: Int = 0,
 ) {
     fun sanitized(): AppSettings = copy(
         themeMode = when (themeMode) {
@@ -101,6 +120,22 @@ data class AppSettings(
             else -> "country"
         },
         iptvOrgCode = iptvOrgCode.lowercase().filter { it.isLetterOrDigit() }.ifBlank { "cn" }.take(12),
+        doubanDataProxy = proxyMode(doubanDataProxy),
+        doubanImageProxy = proxyMode(doubanImageProxy),
+        doubanDataProxyUrl = httpOrBlank(doubanDataProxyUrl),
+        doubanImageProxyUrl = httpOrBlank(doubanImageProxyUrl),
+        hlsAdRules = hlsAdRules.trim().take(4_000),
+        danmakuApiUrl = httpOrBlank(danmakuApiUrl),
+        danmakuApiToken = danmakuApiToken.trim().take(200),
+        danmakuOpacity = danmakuOpacity.coerceIn(20, 100),
+        danmakuFont = if (danmakuFont in SIZES) danmakuFont else "medium",
+        danmakuSpeed = if (danmakuSpeed in SPEEDS) danmakuSpeed else "medium",
+        danmakuDensity = danmakuDensity.coerceIn(10, 100),
+        danmakuArea = if (danmakuArea in AREAS) danmakuArea else "half",
+        danmakuBlockWords = danmakuBlockWords.trim().take(2_000),
+        subtitleSize = if (subtitleSize in SIZES) subtitleSize else "medium",
+        subtitlePosition = if (subtitlePosition in POSITIONS) subtitlePosition else "bottom",
+        subtitleOffsetMs = subtitleOffsetMs.coerceIn(-60_000, 60_000),
     )
 
     companion object {
@@ -109,7 +144,21 @@ data class AppSettings(
         val FONT_SCALES = AppearanceCatalog.fontIds
         val POSTER_SIZES = setOf("small", "medium", "large")
         val ASPECTS = setOf("fit", "fill", "zoom", "16:9", "4:3")
+        val SIZES = setOf("small", "medium", "large")
+        val SPEEDS = setOf("slow", "medium", "fast")
+        val AREAS = setOf("quarter", "half", "full")
+        val POSITIONS = setOf("bottom", "middle", "top")
         private val ACCENT_HEX = Regex("#[0-9A-Fa-f]{6}")
+
+        fun proxyMode(value: String): String = when (value) {
+            "img3", "custom" -> value
+            else -> "direct"
+        }
+
+        fun httpOrBlank(value: String): String {
+            val trimmed = value.trim().take(500)
+            return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) trimmed else ""
+        }
 
         fun sanitizeRows(rows: List<HomeRowSetting>): List<HomeRowSetting> {
             val known = defaultsRows()

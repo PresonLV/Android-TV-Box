@@ -39,7 +39,7 @@ class NetClient {
 
     fun fetchConfig(url: String, maxBytes: Int = 8_000_000): RemoteDocument {
         try {
-            val response = execute(url, maxBytes, range = null, callTimeoutMs = 25_000, userAgent = Ua.CONFIG)
+            val response = execute(url, maxBytes, range = null, callTimeoutMs = 25_000, userAgent = Ua.CONFIG, extra = emptyMap())
             if (response.code !in 200..299) {
                 throw IllegalStateException("请求失败（${response.code}）")
             }
@@ -51,6 +51,18 @@ class NetClient {
             if (error is IllegalStateException && error.message == message) throw error
             throw IllegalStateException(message, error)
         }
+    }
+
+    fun fetch(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+        maxBytes: Int = 1_500_000,
+        userAgent: String = Ua.MEDIA,
+        timeoutMs: Long = 12_000,
+    ): RemoteDocument {
+        val response = execute(url, maxBytes, range = null, callTimeoutMs = timeoutMs, userAgent = userAgent, extra = headers)
+        if (response.code !in 200..299) throw IllegalStateException("请求失败（${response.code}）")
+        return RemoteDocument(response.bodyText, response.finalUrl.ifBlank { url })
     }
 
     fun contentLength(url: String): Long {
@@ -79,6 +91,7 @@ class NetClient {
                 range = if (ranged) "bytes=0-4095" else null,
                 callTimeoutMs = 4_000,
                 userAgent = Ua.MEDIA,
+                extra = emptyMap(),
             )
             val elapsed = elapsedMs(started)
             val playlist = first.bodyText
@@ -95,7 +108,7 @@ class NetClient {
                 if (!variant.isNullOrBlank()) {
                     val variantUrl = java.net.URI(first.finalUrl).resolve(variant).toString()
                     val variantStarted = System.nanoTime()
-                    val second = execute(variantUrl, 8_192, range = null, callTimeoutMs = 3_000, userAgent = Ua.MEDIA)
+                    val second = execute(variantUrl, 8_192, range = null, callTimeoutMs = 3_000, userAgent = Ua.MEDIA, extra = emptyMap())
                     if (second.code in 200..299 || second.code == 206) {
                         firstByte = elapsed + elapsedMs(variantStarted)
                     }
@@ -114,13 +127,21 @@ class NetClient {
         }
     }
 
-    private fun execute(url: String, maxBytes: Int, range: String?, callTimeoutMs: Long, userAgent: String): RawResponse {
+    private fun execute(
+        url: String,
+        maxBytes: Int,
+        range: String?,
+        callTimeoutMs: Long,
+        userAgent: String,
+        extra: Map<String, String>,
+    ): RawResponse {
         val listener = TimingListener()
         val client = http.newBuilder()
             .eventListener(listener)
             .callTimeout(callTimeoutMs, TimeUnit.MILLISECONDS)
             .build()
         val builder = Request.Builder().url(url).header("User-Agent", userAgent)
+        extra.forEach { (key, value) -> if (value.isNotBlank() && !key.equals("User-Agent", true)) builder.header(key, value) }
         if (range != null) builder.header("Range", range)
         client.newCall(builder.build()).execute().use { response ->
             val stream = response.body?.byteStream()

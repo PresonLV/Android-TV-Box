@@ -11,6 +11,7 @@ import app.jianxia.core.model.withAppearance
 import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
+import app.jianxia.tv.data.repo.SubtitleStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,6 +47,7 @@ class LanServer(
     private val sources: SourceRepository,
     private val backup: BackupRepository,
     private val settings: SettingsRepository,
+    private val subtitles: SubtitleStore,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val running = AtomicBoolean(false)
@@ -225,6 +227,54 @@ class LanServer(
                         sources.move(obj.str("id").orEmpty(), obj.str("direction") == "up")
                         sourcesJson("已调整顺序")
                     }
+                    request.method == "GET" && route == "/api/extras" -> extrasJson()
+                    request.method == "POST" && route == "/api/extras" -> {
+                        val obj = parseObject(body)
+                        if (obj.str("reset") == "enhance") {
+                            settings.update { it.resetSection("enhance") }
+                        } else {
+                            settings.update { current ->
+                                current.copy(
+                                    doubanEnabled = obj.bool("doubanEnabled") ?: current.doubanEnabled,
+                                    doubanDataProxy = obj.str("doubanDataProxy") ?: current.doubanDataProxy,
+                                    doubanDataProxyUrl = obj.raw("doubanDataProxyUrl") ?: current.doubanDataProxyUrl,
+                                    doubanImageProxy = obj.str("doubanImageProxy") ?: current.doubanImageProxy,
+                                    doubanImageProxyUrl = obj.raw("doubanImageProxyUrl") ?: current.doubanImageProxyUrl,
+                                    skipHlsAds = obj.bool("skipHlsAds") ?: current.skipHlsAds,
+                                    hlsAdRules = obj.raw("hlsAdRules") ?: current.hlsAdRules,
+                                    danmakuApiUrl = obj.raw("danmakuApiUrl") ?: current.danmakuApiUrl,
+                                    danmakuApiToken = obj.raw("danmakuApiToken") ?: current.danmakuApiToken,
+                                    danmakuEnabled = obj.bool("danmakuEnabled") ?: current.danmakuEnabled,
+                                    danmakuOpacity = obj.int("danmakuOpacity") ?: current.danmakuOpacity,
+                                    danmakuFont = obj.str("danmakuFont") ?: current.danmakuFont,
+                                    danmakuSpeed = obj.str("danmakuSpeed") ?: current.danmakuSpeed,
+                                    danmakuDensity = obj.int("danmakuDensity") ?: current.danmakuDensity,
+                                    danmakuArea = obj.str("danmakuArea") ?: current.danmakuArea,
+                                    danmakuBlockWords = obj.raw("danmakuBlockWords") ?: current.danmakuBlockWords,
+                                    subtitleSize = obj.str("subtitleSize") ?: current.subtitleSize,
+                                    subtitlePosition = obj.str("subtitlePosition") ?: current.subtitlePosition,
+                                )
+                            }
+                        }
+                        extrasJson("已保存")
+                    }
+                    request.method == "POST" && route == "/api/subtitle" -> {
+                        val obj = parseObject(body)
+                        val name = obj.str("name") ?: "subtitle.srt"
+                        val bytes = when {
+                            !obj.raw("base64").isNullOrBlank() -> android.util.Base64.decode(obj.raw("base64"), android.util.Base64.DEFAULT)
+                            obj.raw("text") != null -> obj.raw("text").orEmpty().toByteArray()
+                            else -> throw IllegalArgumentException("没有字幕内容")
+                        }
+                        if (bytes.isEmpty()) throw IllegalArgumentException("字幕是空的")
+                        if (bytes.size > SubtitleStore.MAX_BYTES) throw IllegalArgumentException("字幕文件太大")
+                        val file = subtitles.save(name, bytes)
+                        buildJsonObject {
+                            put("ok", true)
+                            put("message", "已保存 ${file.name}")
+                            put("name", file.name)
+                        }.toString()
+                    }
                     request.method == "POST" && route == "/api/import" -> {
                         buildJsonObject {
                             put("ok", true)
@@ -349,6 +399,33 @@ class LanServer(
 
     private fun JsonObject.raw(key: String): String? =
         this[key]?.jsonPrimitive?.contentOrNull
+
+    private fun JsonObject.bool(key: String): Boolean? = when (this[key]?.jsonPrimitive?.contentOrNull) {
+        "true" -> true
+        "false" -> false
+        else -> null
+    }
+
+    private suspend fun extrasJson(message: String? = null): String {
+        val current = settings.state.value
+        return buildJsonObject {
+            put("ok", true)
+            if (message != null) put("message", message)
+            put("doubanEnabled", current.doubanEnabled)
+            put("doubanDataProxy", current.doubanDataProxy)
+            put("doubanDataProxyUrl", current.doubanDataProxyUrl)
+            put("doubanImageProxy", current.doubanImageProxy)
+            put("doubanImageProxyUrl", current.doubanImageProxyUrl)
+            put("skipHlsAds", current.skipHlsAds)
+            put("hlsAdRules", current.hlsAdRules)
+            put("danmakuApiUrl", current.danmakuApiUrl)
+            put("danmakuApiToken", current.danmakuApiToken)
+            put("danmakuEnabled", current.danmakuEnabled)
+            put("danmakuBlockWords", current.danmakuBlockWords)
+            put("subtitleSize", current.subtitleSize)
+            put("subtitlePosition", current.subtitlePosition)
+        }.toString()
+    }
 
     private fun JsonObject.int(key: String): Int? =
         this[key]?.jsonPrimitive?.intOrNull ?: this[key]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
@@ -497,6 +574,23 @@ class LanServer(
               <button class="ghost" onclick="resetLook()">恢复默认外观</button>
             </div>
             <p id="lookMsg"></p>
+            <h2>豆瓣、去广告、弹幕、字幕</h2>
+            <p>豆瓣只用来显示评分和短评，点进去会用你自己的接口搜索。弹幕需要自己填写 danmu_api 地址，简匣不内置弹幕服务器。去广告规则一行一条，按地址正则匹配。</p>
+            <label>豆瓣数据<select id="doubanData"><option value="direct">直连</option><option value="img3">img3 图片 CDN</option><option value="custom">自定义前缀</option></select></label>
+            <label>豆瓣数据代理<input id="doubanDataUrl" placeholder="https://代理/{url} 或前缀"></label>
+            <label>豆瓣图片<select id="doubanImage"><option value="direct">直连</option><option value="img3">img3.doubanio.com</option><option value="custom">自定义前缀</option></select></label>
+            <label>豆瓣图片代理<input id="doubanImageUrl" placeholder="https:// 图片代理前缀"></label>
+            <label><input id="skipAds" type="checkbox" checked> 跳过 m3u8 广告切片</label>
+            <label>广告地址规则<textarea id="adRules" rows="4" placeholder="一行一条正则，例如 ad-slice"></textarea></label>
+            <label>弹幕接口<input id="danmakuUrl" placeholder="http:// 你的 danmu_api 根地址"></label>
+            <label>弹幕令牌<input id="danmakuToken" placeholder="没有就留空"></label>
+            <label>弹幕屏蔽词<textarea id="danmakuWords" rows="3" placeholder="一行一个词，re: 开头表示正则"></textarea></label>
+            <label>字幕文件<input id="subFile" type="file" accept=".srt,.vtt,.ass,.ssa,.sup"></label>
+            <div class="row">
+              <button onclick="saveExtras()">保存这些设置</button>
+              <button class="ghost" onclick="uploadSub()">上传字幕</button>
+            </div>
+            <p id="extraMsg"></p>
             <h2>导入 / 导出</h2>
             <textarea id="backup" rows="6" placeholder="粘贴备份 JSON，或每行写一个网址"></textarea>
             <div class="row">
@@ -504,6 +598,57 @@ class LanServer(
               <button class="ghost" onclick="exportBackup()">下载备份</button>
             </div>
             <script>
+            async function loadExtras(){
+              try {
+                const data = await api('/api/extras');
+                document.getElementById('doubanData').value = data.doubanDataProxy || 'direct';
+                document.getElementById('doubanDataUrl').value = data.doubanDataProxyUrl || '';
+                document.getElementById('doubanImage').value = data.doubanImageProxy || 'img3';
+                document.getElementById('doubanImageUrl').value = data.doubanImageProxyUrl || '';
+                document.getElementById('skipAds').checked = data.skipHlsAds !== false;
+                document.getElementById('adRules').value = data.hlsAdRules || '';
+                document.getElementById('danmakuUrl').value = data.danmakuApiUrl || '';
+                document.getElementById('danmakuToken').value = data.danmakuApiToken || '';
+                document.getElementById('danmakuWords').value = data.danmakuBlockWords || '';
+              } catch (e) { document.getElementById('extraMsg').textContent = friendly(e); }
+            }
+            async function saveExtras(){
+              try {
+                const data = await api('/api/extras', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+                  doubanDataProxy: document.getElementById('doubanData').value,
+                  doubanDataProxyUrl: document.getElementById('doubanDataUrl').value,
+                  doubanImageProxy: document.getElementById('doubanImage').value,
+                  doubanImageProxyUrl: document.getElementById('doubanImageUrl').value,
+                  skipHlsAds: document.getElementById('skipAds').checked,
+                  hlsAdRules: document.getElementById('adRules').value,
+                  danmakuApiUrl: document.getElementById('danmakuUrl').value,
+                  danmakuApiToken: document.getElementById('danmakuToken').value,
+                  danmakuBlockWords: document.getElementById('danmakuWords').value
+                })});
+                document.getElementById('extraMsg').textContent = data.message || '已保存';
+              } catch (e) { document.getElementById('extraMsg').textContent = friendly(e); }
+            }
+            async function uploadSub(){
+              const file = document.getElementById('subFile').files[0];
+              if (!file) { document.getElementById('extraMsg').textContent = '先选择字幕文件'; return; }
+              const lower = file.name.toLowerCase();
+              const binary = lower.endsWith('.sup') || lower.endsWith('.pgs');
+              const payload = {name: file.name};
+              if (binary) {
+                const buf = await file.arrayBuffer();
+                const bytes = new Uint8Array(buf);
+                let raw = '';
+                for (let i = 0; i < bytes.length; i++) raw += String.fromCharCode(bytes[i]);
+                payload.base64 = btoa(raw);
+              } else {
+                payload.text = await file.text();
+              }
+              try {
+                const data = await api('/api/subtitle', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+                document.getElementById('extraMsg').textContent = data.message || '已上传';
+              } catch (e) { document.getElementById('extraMsg').textContent = friendly(e); }
+            }
+            loadExtras();
             const pin = new URLSearchParams(location.search).get('pin');
             const q = pin ? ('?pin=' + encodeURIComponent(pin)) : '';
             function friendly(error){

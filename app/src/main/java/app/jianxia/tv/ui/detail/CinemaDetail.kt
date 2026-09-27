@@ -44,6 +44,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import app.jianxia.core.model.AppSettings
+import app.jianxia.tv.ui.douban.DoubanComments
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.ProvideCinema
@@ -83,8 +84,9 @@ internal fun CinemaDetail(
                             Column(Modifier.align(Alignment.BottomStart).padding(start = 28.dp, end = 180.dp, bottom = 16.dp)) {
                                 Text(item.title, color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 val tags = listOfNotNull(item.year, item.area, item.typeName, item.remarks).filter { it.isNotBlank() }
-                                if (tags.isNotEmpty()) {
-                                    Text(tags.joinToString("   ·   "), color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp))
+                                if (tags.isNotEmpty() || state.doubanRating.isNotBlank()) {
+                                    val line = (listOfNotNull(state.doubanRating.takeIf { it.isNotBlank() }?.let { "豆瓣 $it" }) + tags).joinToString("   ·   ")
+                                    Text(line, color = Color.White.copy(alpha = 0.8f), modifier = Modifier.padding(top = 6.dp))
                                 }
                                 if (!item.content.isNullOrBlank()) {
                                     Text(item.content.orEmpty().replace("\n", " "), color = Color.White.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
@@ -96,9 +98,14 @@ internal fun CinemaDetail(
                                 }
                             }
                         }
-                        if (!item.actor.isNullOrBlank()) {
-                            Text("演员  ${item.actor}", color = palette.muted, modifier = Modifier.padding(start = 28.dp, top = 8.dp))
+                        val people = state.doubanPeople.ifBlank { item.actor?.let { "演员  $it" }.orEmpty() }
+                        if (people.isNotBlank()) {
+                            Text(people, color = palette.muted, modifier = Modifier.padding(start = 28.dp, top = 8.dp, end = 28.dp))
                         }
+                        if (state.doubanNote.isNotBlank() && state.doubanRating.isBlank()) {
+                            Text(state.doubanNote, color = palette.muted, modifier = Modifier.padding(start = 28.dp, top = 6.dp))
+                        }
+                        DoubanComments(state.comments, state.commentsMore, vm::moreComments)
                         Text(
                             "共 ${item.variants.size} 个来源，${item.variants.sumOf { it.lines.size }} 条线路",
                             color = palette.accent,

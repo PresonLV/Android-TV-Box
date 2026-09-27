@@ -108,6 +108,7 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
             scope.launch { app.settings.update { it.copy(searchTimeoutSec = id.toInt()) } }
         }) { scope.launch { app.settings.update { it.resetSection("lines") } } }
         "backup" -> BackupPage()
+        "enhance" -> EnhancePage()
         "about" -> AboutPage()
         else -> SettingsMenu(BuildConfig.VERSION_NAME) { page = it }
     }
@@ -407,6 +408,80 @@ private fun BackupPage() {
 }
 
 @Composable
+private fun EnhancePage() {
+    val app = LocalApp.current
+    val palette = LocalPalette.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+        Text("豆瓣与播放增强", color = palette.text, fontSize = 26.sp)
+        Text("长地址、广告规则和弹幕令牌用手机页面填写。这里用遥控器开关。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+        Text("豆瓣", color = palette.text, fontSize = 18.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            TvButton(if (settings.doubanEnabled) "豆瓣开" else "豆瓣关", primary = settings.doubanEnabled) {
+                scope.launch { app.settings.update { it.copy(doubanEnabled = !it.doubanEnabled) } }
+            }
+        }
+        Text("数据", color = palette.muted, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("direct" to "直连", "img3" to "img3", "custom" to "自定义").forEach { (id, label) ->
+                TvButton(label, primary = settings.doubanDataProxy == id) {
+                    scope.launch { app.settings.update { it.copy(doubanDataProxy = id) } }
+                }
+            }
+        }
+        Text("图片", color = palette.muted, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("direct" to "直连", "img3" to "img3", "custom" to "自定义").forEach { (id, label) ->
+                TvButton(label, primary = settings.doubanImageProxy == id) {
+                    scope.launch { app.settings.update { it.copy(doubanImageProxy = id) } }
+                }
+            }
+        }
+        Text("img3 会把海报改到 img3.doubanio.com。自定义前缀在手机页面填写。豆瓣失败时详情仍显示接口自己的资料。", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
+        Text("去广告", color = palette.text, fontSize = 18.sp, modifier = Modifier.padding(top = 16.dp))
+        TvButton(if (settings.skipHlsAds) "m3u8 去广告开" else "m3u8 去广告关", primary = settings.skipHlsAds, modifier = Modifier.padding(top = 8.dp)) {
+            scope.launch { app.settings.update { it.copy(skipHlsAds = !it.skipHlsAds) } }
+        }
+        Text("弹幕", color = palette.text, fontSize = 18.sp, modifier = Modifier.padding(top = 16.dp))
+        Text(
+            settings.danmakuApiUrl.ifBlank { "未配置弹幕接口" },
+            color = palette.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 6.dp).width(640.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            TvButton(if (settings.danmakuEnabled) "弹幕开" else "弹幕关", primary = settings.danmakuEnabled) {
+                scope.launch { app.settings.update { it.copy(danmakuEnabled = !it.danmakuEnabled) } }
+            }
+            listOf("quarter" to "上方", "half" to "半屏", "full" to "全屏").forEach { (id, label) ->
+                TvButton(label, primary = settings.danmakuArea == id) {
+                    scope.launch { app.settings.update { it.copy(danmakuArea = id) } }
+                }
+            }
+        }
+        Text("字幕", color = palette.text, fontSize = 18.sp, modifier = Modifier.padding(top = 16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            listOf("small" to "小", "medium" to "标准", "large" to "大").forEach { (id, label) ->
+                TvButton(label, primary = settings.subtitleSize == id) {
+                    scope.launch { app.settings.update { it.copy(subtitleSize = id) } }
+                }
+            }
+            listOf("bottom" to "底部", "middle" to "中间", "top" to "顶部").forEach { (id, label) ->
+                TvButton(label, primary = settings.subtitlePosition == id) {
+                    scope.launch { app.settings.update { it.copy(subtitlePosition = id) } }
+                }
+            }
+        }
+        TvButton("恢复显示默认", modifier = Modifier.padding(top = 16.dp)) {
+            scope.launch { app.settings.update { it.resetSection("enhance") } }
+        }
+        Text("恢复默认不会清掉已填写的弹幕地址、广告规则和代理。", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
+    }
+}
+
+@Composable
 private fun AboutPage() {
     val palette = LocalPalette.current
     val context = LocalContext.current
@@ -422,6 +497,13 @@ private fun AboutPage() {
         Text("公共频道", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
         Text(
             "频道列表来自 iptv-org。这些是公开的免费直播地址，简匣不把频道表打进安装包，也不提供点播片源。列表和项目主页：https://github.com/iptv-org/iptv",
+            color = palette.muted,
+            modifier = Modifier.padding(top = 8.dp).width(720.dp),
+            lineHeight = 24.sp,
+        )
+        Text("豆瓣、去广告和弹幕", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
+        Text(
+            "豆瓣分类、把 m3u8 在本地改写后再交给播放器、以及按 danmu_api 拉取弹幕，这些做法参考了 MoonTVPlus（MIT，https://github.com/mtvpls/MoonTVPlus）。简匣按自己的界面重新实现，没有复制它的源码，也没有内置弹幕服务器或付费片源。弹幕接口需要自己填写。",
             color = palette.muted,
             modifier = Modifier.padding(top = 8.dp).width(720.dp),
             lineHeight = 24.sp,
@@ -444,6 +526,7 @@ private fun AboutPage() {
             TvButton("打开 libVLC 源码") { licenseHint = openLicense(context, "https://code.videolan.org/videolan/vlc-android") }
             TvButton("打开 LGPL-2.1") { licenseHint = openLicense(context, "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html") }
             TvButton("打开 iptv-org") { licenseHint = openLicense(context, "https://github.com/iptv-org/iptv") }
+            TvButton("打开 MoonTVPlus") { licenseHint = openLicense(context, "https://github.com/mtvpls/MoonTVPlus") }
         }
     }
 }

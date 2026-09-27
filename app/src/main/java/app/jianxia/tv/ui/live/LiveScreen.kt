@@ -49,6 +49,7 @@ import app.jianxia.tv.player.PlaybackHost
 import app.jianxia.tv.player.StreamOpen
 import app.jianxia.tv.player.parseEngine
 import app.jianxia.tv.ui.EmptyHint
+import app.jianxia.core.hls.HlsAdFilter
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.ScreenPadding
@@ -421,15 +422,20 @@ fun LiveScreen() {
         playError = null
         host.setEngine(parseEngine(settings.playerEngine), settings.decoder == "software")
         host.setSpeed(settings.defaultSpeed)
-        host.play(
-            StreamOpen(
-                url = channel.url,
-                userAgent = channel.userAgent,
-                referer = channel.referer,
-                headers = channel.headers,
-                speed = settings.defaultSpeed,
-            ),
+        val open = StreamOpen(
+            url = channel.url,
+            userAgent = channel.userAgent,
+            referer = channel.referer,
+            headers = channel.headers,
+            speed = settings.defaultSpeed,
         )
+        val (agent, headerMap) = open.requestHeaders()
+        val playbackUrl = if (settings.skipHlsAds) {
+            app.hls.wrap(channel.url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
+        } else {
+            channel.url
+        }
+        host.play(open.copy(url = playbackUrl))
         vm.remember(channel.url)
     }
     when {

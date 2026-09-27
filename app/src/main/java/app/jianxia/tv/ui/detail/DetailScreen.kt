@@ -23,9 +23,11 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import app.jianxia.core.douban.DoubanComment
 import app.jianxia.core.model.MergedVod
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
+import app.jianxia.tv.ui.douban.DoubanComments
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.Poster
@@ -55,6 +57,12 @@ data class DetailState(
     val error: String? = null,
     val resumeMs: Long = 0,
     val historyEpisode: Int = -1,
+    val doubanId: String = "",
+    val doubanRating: String = "",
+    val doubanPeople: String = "",
+    val doubanNote: String = "",
+    val comments: List<DoubanComment> = emptyList(),
+    val commentsMore: Boolean = false,
 )
 
 class DetailViewModel(private val app: AppContainer) : ViewModel() {
@@ -87,6 +95,44 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
                 resumeMs = history?.positionMs ?: 0,
                 historyEpisode = history?.episodeIndex ?: -1,
             )
+            loadDouban(full.title, full.year)
+        }
+    }
+
+    fun moreComments() {
+        val id = _state.value.doubanId
+        if (id.isBlank() || !_state.value.commentsMore) return
+        val start = _state.value.comments.size
+        viewModelScope.launch {
+            val page = runCatching { app.douban.comments(app.settings.state.value, id, start) }.getOrNull() ?: return@launch
+            _state.update { it.copy(comments = it.comments + page.comments, commentsMore = page.hasMore) }
+        }
+    }
+
+    private fun loadDouban(title: String, year: String?) {
+        viewModelScope.launch {
+            val settings = app.settings.state.value
+            if (!settings.doubanEnabled) return@launch
+            val detail = runCatching { app.douban.match(settings, title, year) }.getOrNull()
+            if (detail == null) {
+                _state.update { it.copy(doubanNote = "豆瓣暂时没有匹配到这部片子") }
+                return@launch
+            }
+            val page = runCatching { app.douban.comments(settings, detail.id, 0) }.getOrNull()
+            val people = listOf(
+                detail.directors.take(3).joinToString("、").let { if (it.isBlank()) "" else "导演 $it" },
+                detail.actors.take(6).joinToString("、").let { if (it.isBlank()) "" else "演员 $it" },
+            ).filter { it.isNotBlank() }.joinToString("    ")
+            _state.update {
+                it.copy(
+                    doubanId = detail.id,
+                    doubanRating = detail.rating,
+                    doubanPeople = people,
+                    doubanNote = "",
+                    comments = page?.comments.orEmpty(),
+                    commentsMore = page?.hasMore == true,
+                )
+            }
         }
     }
 
@@ -192,6 +238,18 @@ fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
                         )
                         if (!item.actor.isNullOrBlank()) Text("演员  ${item.actor}", color = palette.text, modifier = Modifier.padding(top = 10.dp))
                         if (!item.director.isNullOrBlank()) Text("导演  ${item.director}", color = palette.text, modifier = Modifier.padding(top = 4.dp))
+                        if (state.doubanRating.isNotBlank() || state.doubanPeople.isNotBlank()) {
+                            Text(
+                                listOfNotNull(
+                                    state.doubanRating.takeIf { it.isNotBlank() }?.let { "豆瓣 $it" },
+                                    state.doubanPeople.takeIf { it.isNotBlank() },
+                                ).joinToString("    "),
+                                color = palette.text,
+                                modifier = Modifier.padding(top = 10.dp),
+                            )
+                        } else if (state.doubanNote.isNotBlank()) {
+                            Text(state.doubanNote, color = palette.muted, modifier = Modifier.padding(top = 10.dp))
+                        }
                         if (!item.content.isNullOrBlank()) {
                             Text(item.content.orEmpty(), color = palette.muted, modifier = Modifier.padding(top = 12.dp), lineHeight = 22.sp)
                         }
@@ -233,6 +291,7 @@ fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
                         }
                     }
                 }
+                DoubanComments(state.comments, state.commentsMore, vm::moreComments)
             }
         }
     }

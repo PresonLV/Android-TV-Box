@@ -10,10 +10,13 @@ import app.jianxia.tv.data.net.NetClient
 import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.CatalogRepository
 import app.jianxia.tv.data.repo.CatalogStore
+import app.jianxia.tv.data.repo.DanmakuClient
+import app.jianxia.tv.data.repo.DoubanRepository
 import app.jianxia.tv.data.repo.LibraryRepository
 import app.jianxia.tv.data.repo.LiveRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
+import app.jianxia.tv.data.repo.SubtitleStore
 import app.jianxia.tv.ui.installImageLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,14 +47,19 @@ class AppContainer(context: Application) {
     val library = LibraryRepository(database.library())
     val catalog = CatalogRepository(http, sources, CatalogStore())
     val live = LiveRepository(http)
+    val douban = DoubanRepository(http, context.cacheDir)
+    val danmaku = DanmakuClient(http)
+    val subtitles = SubtitleStore(context.filesDir)
+    val hls = app.jianxia.tv.player.HlsRewriteProxy(http.http)
     val backup = BackupRepository(settings, sources)
-    val lan = LanServer(context, sources, backup, settings)
+    val lan = LanServer(context, sources, backup, settings, subtitles)
     val session = PlaybackSession()
     val pinyin: PinyinIme = PinyinIme.loadDefault()
 }
 
 class PlaybackSession {
     var request: PlayRequest? = null
+    var pendingSearch: String? = null
 }
 
 data class PlayRequest(

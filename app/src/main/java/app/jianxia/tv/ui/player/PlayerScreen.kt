@@ -164,6 +164,8 @@ fun PlayerScreen(onBack: () -> Unit) {
             },
             modifier = frame,
         )
+        val overlay by vm.overlay.collectAsStateWithLifecycle()
+        PlaybackOverlay(overlay, ui.positionMs, ui.playing && !ui.buffering)
         if (ui.empty) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("没有可播放的内容", color = Color.White, fontSize = 24.sp)
@@ -222,6 +224,58 @@ fun PlayerScreen(onBack: () -> Unit) {
                             SelectChip(engine.label(), engine.wire() == ui.engine) { vm.setKernel(engine.wire()) }
                         }
                     }
+                    PlayerPanel.Danmaku -> Column {
+                        Text(overlay.danmakuNote.ifBlank { "弹幕" }, color = Color.White, modifier = Modifier.padding(bottom = 8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SelectChip(if (overlay.danmakuOn) "弹幕开" else "弹幕关", overlay.danmakuOn) { vm.toggleDanmaku() }
+                            listOf(40 to "淡", 80 to "标准", 100 to "浓").forEach { (value, label) ->
+                                SelectChip(label, overlay.opacity == value) { vm.setDanmaku(opacity = value) }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            listOf("small" to "小字", "medium" to "中字", "large" to "大字").forEach { (value, label) ->
+                                SelectChip(label, overlay.font == value) { vm.setDanmaku(font = value) }
+                            }
+                            listOf("slow" to "慢", "medium" to "中速", "fast" to "快").forEach { (value, label) ->
+                                SelectChip(label, overlay.speed == value) { vm.setDanmaku(speed = value) }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            listOf(30 to "稀疏", 60 to "正常", 100 to "密集").forEach { (value, label) ->
+                                SelectChip(label, overlay.density == value) { vm.setDanmaku(density = value) }
+                            }
+                            listOf("quarter" to "上方", "half" to "半屏", "full" to "全屏").forEach { (value, label) ->
+                                SelectChip(label, overlay.area == value) { vm.setDanmaku(area = value) }
+                            }
+                        }
+                    }
+                    PlayerPanel.Subtitle -> Column {
+                        Text(overlay.subtitleNote.ifBlank { "字幕" }, color = Color.White, modifier = Modifier.padding(bottom = 8.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SelectChip("关闭", overlay.choice == "off") { vm.chooseSubtitle("off") }
+                            overlay.embedded.forEach { track ->
+                                SelectChip("内嵌 ${track.label}", overlay.choice == "embedded:${track.id}") {
+                                    vm.chooseSubtitle("embedded:${track.id}")
+                                }
+                            }
+                            overlay.files.forEach { (path, name) ->
+                                SelectChip(name, overlay.choice == "file:$path") { vm.chooseSubtitle("file:$path") }
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            TvButton("提前 0.5 秒") { vm.nudgeSubtitle(-500) }
+                            TvButton("延后 0.5 秒") { vm.nudgeSubtitle(500) }
+                            TvButton("偏移归零") { vm.nudgeSubtitle(-overlay.offsetMs) }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            listOf("small" to "小", "medium" to "标准", "large" to "大").forEach { (value, label) ->
+                                SelectChip(label, overlay.size == value) { vm.setSubtitleLook(size = value) }
+                            }
+                            listOf("bottom" to "底部", "middle" to "中间", "top" to "顶部").forEach { (value, label) ->
+                                SelectChip(label, overlay.position == value) { vm.setSubtitleLook(position = value) }
+                            }
+                        }
+                    }
                     PlayerPanel.Skip -> Column {
                         Text("片头", color = Color.White)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -248,6 +302,8 @@ fun PlayerScreen(onBack: () -> Unit) {
                         TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
                         TvButton("画面") { vm.panel(PlayerPanel.Aspect) }
                         TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
+                        TvButton(if (overlay.danmakuOn) "弹幕" else "弹幕关") { vm.panel(PlayerPanel.Danmaku) }
+                        TvButton("字幕") { vm.panel(PlayerPanel.Subtitle) }
                         TvButton("内核 ${parseEngine(ui.engine).label()}") { vm.panel(PlayerPanel.Engine) }
                         TvButton("用外部播放器打开") { vm.openExternal(context) }
                     }

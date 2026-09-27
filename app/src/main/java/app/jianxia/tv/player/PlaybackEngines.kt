@@ -15,6 +15,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
@@ -30,7 +31,10 @@ import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
+import java.io.File
 import java.util.ArrayList
+
+data class EmbeddedTrack(val id: String, val label: String)
 
 enum class EngineId {
     Vlc,
@@ -225,6 +229,60 @@ class PlaybackHost(context: Context) {
         applySpeed()
     }
 
+    fun embeddedTracks(): List<EmbeddedTrack> = when (engine) {
+        EngineId.Exo -> {
+            val player = exo ?: return emptyList()
+            buildList {
+                player.currentTracks.groups.forEachIndexed { groupIndex, group ->
+                    if (group.type != C.TRACK_TYPE_TEXT) return@forEachIndexed
+                    for (index in 0 until group.length) {
+                        val format = group.getTrackFormat(index)
+                        val label = format.label ?: format.language ?: "内嵌字幕 ${size + 1}"
+                        add(EmbeddedTrack("exo:$groupIndex:$index", label))
+                    }
+                }
+            }
+        }
+        EngineId.Vlc -> mediaPlayer?.spuTracks.orEmpty()
+            .filter { it.id >= 0 }
+            .map { EmbeddedTrack("vlc:${it.id}", it.name ?: "内嵌字幕") }
+    }
+
+    fun selectEmbedded(id: String?) {
+        when (engine) {
+            EngineId.Exo -> {
+                val player = exo ?: return
+                val builder = player.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, id == null)
+                if (id != null && id.startsWith("exo:")) {
+                    val parts = id.split(":")
+                    val group = parts.getOrNull(1)?.toIntOrNull()?.let { player.currentTracks.groups.getOrNull(it) }
+                    val track = parts.getOrNull(2)?.toIntOrNull()
+                    if (group != null && track != null) {
+                        builder.setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(track)))
+                    }
+                }
+                player.trackSelectionParameters = builder.build()
+            }
+            EngineId.Vlc -> {
+                val player = mediaPlayer ?: return
+                val track = id?.removePrefix("vlc:")?.toIntOrNull()
+                player.setSpuTrack(track ?: -1)
+            }
+        }
+    }
+
+    fun setSubtitleOffset(ms: Long) {
+        if (engine == EngineId.Vlc) mediaPlayer?.setSpuDelay(ms * 1_000)
+    }
+
+    fun attachExternalSubtitle(path: String): Boolean {
+        if (engine != EngineId.Vlc) return false
+        val player = mediaPlayer ?: return false
+        val location = if (path.startsWith("http://") || path.startsWith("https://")) path else Uri.fromFile(File(path)).toString()
+        return player.addSlave(0, location, true)
+    }
+
     fun setAspect(value: String) {
         aspect = value
         applyAspect()
@@ -281,6 +339,9 @@ class PlaybackHost(context: Context) {
                 true,
             )
             .setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            .build()
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
         player.setWakeMode(C.WAKE_MODE_LOCAL)
         player.playWhenReady = true
@@ -364,6 +425,7 @@ class PlaybackHost(context: Context) {
         }
         vlcLayout?.let { player.attachViews(it, null, false, false) }
         player.play()
+        player.setSpuTrack(-1)
     }
 
     private fun mount() {

@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -101,6 +102,13 @@ class SearchViewModel(private val app: AppContainer) : ViewModel() {
         _state.update { it.copy(pinyin = !it.pinyin, buffer = "") }
     }
 
+    fun submit(query: String) {
+        val cleaned = query.trim()
+        if (cleaned.isEmpty()) return
+        _state.update { it.copy(query = cleaned, buffer = "") }
+        schedule(cleaned, immediate = true)
+    }
+
     fun searchNow() {
         commitBuffer()
         schedule(_state.value.query, immediate = true)
@@ -140,6 +148,13 @@ fun SearchScreen(onOpen: (String) -> Unit) {
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val vm: SearchViewModel = appViewModel { SearchViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val pending = app.session.pendingSearch
+    LaunchedEffect(pending) {
+        if (!pending.isNullOrBlank()) {
+            app.session.pendingSearch = null
+            vm.submit(pending)
+        }
+    }
     val (posterW, posterH) = posterSize(settings.posterSize)
     val candidates = if (state.pinyin) app.pinyin.candidates(state.buffer) else emptyList()
     Row(Modifier.fillMaxSize().padding(ScreenPadding)) {

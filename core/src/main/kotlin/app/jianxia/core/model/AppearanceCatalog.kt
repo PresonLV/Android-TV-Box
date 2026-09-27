@@ -201,6 +201,21 @@ fun AppSettings.resetSection(section: String): AppSettings {
             searchTimeoutSec = fresh.searchTimeoutSec,
             autoLineSelect = fresh.autoLineSelect,
         )
+        "enhance" -> copy(
+            doubanEnabled = fresh.doubanEnabled,
+            doubanDataProxy = fresh.doubanDataProxy,
+            doubanImageProxy = fresh.doubanImageProxy,
+            skipHlsAds = fresh.skipHlsAds,
+            danmakuEnabled = fresh.danmakuEnabled,
+            danmakuOpacity = fresh.danmakuOpacity,
+            danmakuFont = fresh.danmakuFont,
+            danmakuSpeed = fresh.danmakuSpeed,
+            danmakuDensity = fresh.danmakuDensity,
+            danmakuArea = fresh.danmakuArea,
+            subtitleSize = fresh.subtitleSize,
+            subtitlePosition = fresh.subtitlePosition,
+            subtitleOffsetMs = fresh.subtitleOffsetMs,
+        )
         else -> this
     }
 }

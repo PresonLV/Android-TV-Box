@@ -37,6 +37,7 @@ import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.repo.HomeCatalog
 import app.jianxia.tv.ui.LocalApp
+import app.jianxia.tv.ui.douban.DoubanHomeRows
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.PosterCard
@@ -71,7 +72,7 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> Unit) {
+fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> Unit, onDouban: () -> Unit, onSearch: (String) -> Unit) {
     val app = LocalApp.current
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
@@ -100,6 +101,8 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
             onPlay = onPlay,
             onSettings = onSettings,
             onRetry = { vm.load() },
+            onDouban = onDouban,
+            onSearch = onSearch,
         )
         return
     }
@@ -131,6 +134,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
             }
             state.loading && state.catalog == null -> CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(top = 32.dp))
             else -> {
+                DoubanHomeRows(onDouban, onSearch)
                 settings.homeRows.filter { it.visible }.forEach { row ->
                     when (row.id) {
                         "history" -> if (history.isNotEmpty()) {
