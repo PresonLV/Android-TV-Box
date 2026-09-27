@@ -137,15 +137,14 @@ internal fun CinemaDetail(
                                     LineChip(playLine.name, speeds[id] ?: "测速中", index == state.lineIndex) { vm.line(index) }
                                 }
                             }
-                            Text("选集", color = palette.text, modifier = Modifier.padding(start = 28.dp, top = 16.dp, bottom = 8.dp))
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                contentPadding = PaddingValues(start = 28.dp, end = 28.dp, bottom = 24.dp),
-                                modifier = Modifier.focusRestorer(),
-                            ) {
-                                itemsIndexed(line?.episodes.orEmpty(), key = { index, episode -> "$index-${episode.name}" }) { index, episode ->
-                                    EpisodeCard(episode.name, index == state.episodeIndex, settings.reduceMotion) { vm.episode(index) }
-                                }
+                            Column(Modifier.padding(horizontal = 28.dp).padding(bottom = 24.dp)) {
+                                EpisodePager(
+                                    episodes = line?.episodes.orEmpty().map { it.name },
+                                    selected = state.episodeIndex,
+                                    reversed = state.reversed,
+                                    onToggleOrder = vm::toggleOrder,
+                                    onSelect = vm::episode,
+                                )
                             }
                         }
                     }

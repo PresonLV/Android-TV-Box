@@ -192,6 +192,27 @@ class MergeRankTest {
             HomeSiteSummary.message(47, 0, 47, 0),
         )
         assertEquals("共 2 个站点：2 个可用，0 个加载失败", HomeSiteSummary.message(2, 2, 0, 0))
+        val reports = listOf(
+            app.jianxia.core.model.SiteReport("a", "cfg", "甲", "可用", "3 条"),
+            app.jianxia.core.model.SiteReport("b", "cfg", "乙", "失败", "超时"),
+            app.jianxia.core.model.SiteReport("c", "cfg", "虎牙", "已隐藏", "直播"),
+        )
+        assertEquals(
+            "共 3 个站点：1 个可用，1 个直播类已隐藏，1 个加载失败",
+            HomeSiteSummary.fromReports(reports),
+        )
+        assertTrue(app.jianxia.core.spider.LiveSites.matches("🐯虎牙┃直播", "虎牙js", "csp_Huya"))
+        assertTrue(!app.jianxia.core.spider.LiveSites.matches("豆豆┃片单", "点我切源", "csp_DouDouGuard"))
+        assertEquals(
+            "UnsatisfiedLinkError: dlopen failed",
+            app.jianxia.core.spider.SpiderFault.explain(IllegalStateException("爬虫执行失败", UnsatisfiedLinkError("dlopen failed"))),
+        )
+        assertEquals(
+            listOf("https://img3.doubanio.com/a.jpg", "https://img1.doubanio.com/a.jpg", "https://img2.doubanio.com/a.jpg", "https://img9.doubanio.com/a.jpg"),
+            app.jianxia.core.douban.PosterUrls.candidates("https://img9.doubanio.com/a.jpg").take(4),
+        )
+        assertEquals("exo", app.jianxia.core.player.preferredEngineWire("vlc", false, listOf("armeabi-v7a")))
+        assertEquals("vlc", app.jianxia.core.player.preferredEngineWire("vlc", true, listOf("armeabi-v7a")))
         assertFalse(AppSettings().spiderEnabled)
     }
 

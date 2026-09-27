@@ -7,9 +7,34 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.ImageRequest
 import coil.size.Precision
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+
+private const val BROWSER =
+    "Mozilla/5.0 (Linux; Android 10; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 fun installImageLoader(context: Context) {
+    val http = OkHttpClient.Builder()
+        .connectTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .addInterceptor { chain ->
+            val request = chain.request()
+            val host = request.url.host
+            val builder = request.newBuilder()
+            if (request.header("User-Agent").isNullOrBlank()) {
+                builder.header("User-Agent", BROWSER)
+            }
+            if (host.contains("doubanio.com") || host.contains("douban.com")) {
+                if (request.header("Referer").isNullOrBlank()) {
+                    builder.header("Referer", "https://movie.douban.com/")
+                }
+            }
+            chain.proceed(builder.build())
+        }
+        .build()
     val loader = ImageLoader.Builder(context)
+        .okHttpClient(http)
         .memoryCache {
             MemoryCache.Builder(context)
                 .maxSizeBytes(24 * 1024 * 1024)

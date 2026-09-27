@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +64,7 @@ data class DetailState(
     val doubanNote: String = "",
     val comments: List<DoubanComment> = emptyList(),
     val commentsMore: Boolean = false,
+    val reversed: Boolean = false,
 )
 
 class DetailViewModel(private val app: AppContainer) : ViewModel() {
@@ -140,6 +142,8 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
     fun line(index: Int) = _state.update { it.copy(lineIndex = index, episodeIndex = 0, lineTouched = true) }
     fun episode(index: Int) = _state.update { it.copy(episodeIndex = index) }
 
+    fun toggleOrder() = _state.update { it.copy(reversed = !it.reversed) }
+
     fun toggleFavorite() {
         val item = _state.value.item ?: return
         val next = !_state.value.favorite
@@ -198,6 +202,54 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
             }
         }
         return 0 to 0
+    }
+}
+
+internal fun episodePageCount(count: Int): Int = if (count <= 0) 1 else (count + 39) / 40
+
+internal fun episodeOrder(count: Int, reversed: Boolean): List<Int> =
+    if (reversed) (count - 1 downTo 0).toList() else (0 until count).toList()
+
+internal fun episodePageFor(count: Int, reversed: Boolean, index: Int): Int {
+    val pos = episodeOrder(count, reversed).indexOf(index).coerceAtLeast(0)
+    return pos / 40
+}
+
+@Composable
+internal fun EpisodePager(
+    episodes: List<String>,
+    selected: Int,
+    reversed: Boolean,
+    onToggleOrder: () -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    val palette = LocalPalette.current
+    var page by androidx.compose.runtime.remember(episodes.size, reversed) {
+        androidx.compose.runtime.mutableIntStateOf(episodePageFor(episodes.size, reversed, selected))
+    }
+    val pages = episodePageCount(episodes.size)
+    val order = episodeOrder(episodes.size, reversed)
+    val window = order.drop(page * 40).take(40)
+    Text("选集", color = palette.text, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+        SelectChip(if (reversed) "倒序" else "正序", true, onClick = onToggleOrder)
+        if (pages > 1) {
+            repeat(pages) { index ->
+                val start = order.getOrNull(index * 40)?.plus(1) ?: return@repeat
+                val end = order.getOrNull(minOf(order.lastIndex, index * 40 + 39))?.plus(1) ?: start
+                val label = if (start <= end) "$start-$end" else "$end-$start"
+                SelectChip(label, index == page) { page = index }
+            }
+        }
+    }
+    window.chunked(8).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            row.forEach { index ->
+                SelectChip(episodes.getOrNull(index).orEmpty().ifBlank { "${index + 1}" }, index == selected) {
+                    onSelect(index)
+                }
+            }
+        }
     }
 }
 
@@ -281,15 +333,13 @@ fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
                             SelectChip("${playLine.name}  ${playLine.episodes.size}", index == state.lineIndex) { vm.line(index) }
                         }
                     }
-                    Text("选集", color = palette.text, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
-                    line?.episodes.orEmpty().chunked(6).forEachIndexed { rowIndex, row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                            row.forEachIndexed { column, episode ->
-                                val index = rowIndex * 6 + column
-                                SelectChip(episode.name, index == state.episodeIndex) { vm.episode(index) }
-                            }
-                        }
-                    }
+                    EpisodePager(
+                        episodes = line?.episodes.orEmpty().map { it.name },
+                        selected = state.episodeIndex,
+                        reversed = state.reversed,
+                        onToggleOrder = vm::toggleOrder,
+                        onSelect = vm::episode,
+                    )
                 }
                 DoubanComments(state.comments, state.commentsMore, vm::moreComments)
             }

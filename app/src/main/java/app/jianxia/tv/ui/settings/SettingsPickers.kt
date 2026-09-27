@@ -293,6 +293,16 @@ internal fun HomeStudio() {
             }
         }
         Text("关闭后首页不再淡入，大图也不再模糊，适合比较慢的盒子。", color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("直播类站点", color = palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceCard("影片页隐藏", !settings.showLiveOnVod, Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(showLiveOnVod = false) } }
+            }
+            ChoiceCard("在影片页显示", settings.showLiveOnVod, Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(showLiveOnVod = true) } }
+            }
+        }
+        Text("默认不把虎牙、斗鱼这类直播间放进首页和筛选。直播页里的频道不受影响。", color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
         Text("栏目预览", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(palette.surface).padding(12.dp),

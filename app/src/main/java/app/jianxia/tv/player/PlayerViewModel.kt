@@ -8,7 +8,9 @@ import app.jianxia.core.line.rankLines
 import app.jianxia.core.model.AppSettings
 import app.jianxia.core.subtitle.SubCue
 import app.jianxia.core.subtitle.Subtitles
+import android.os.Build
 import app.jianxia.core.UserFacingError
+import app.jianxia.core.player.preferredEngineWire
 import app.jianxia.core.model.LineProbe
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.ParseDef
@@ -37,7 +39,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class PlayerPanel { Hidden, Main, Lines, Speed, Aspect, Skip, Engine, Danmaku, Subtitle }
+enum class PlayerPanel { Hidden, Main, Lines, Episodes, Speed, Aspect, Skip, Engine, Danmaku, Subtitle, Menu }
 
 data class LineOption(val id: String, val label: String, val detail: String?)
 
@@ -65,6 +67,8 @@ data class PlayerUi(
     val countdown: Int? = null,
     val error: String? = null,
     val probing: Boolean = false,
+    val episodes: List<String> = emptyList(),
+    val bufferSpeed: String = "",
 )
 
 data class OverlayUi(
@@ -153,7 +157,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         fallback = EngineFallback(created)
         val settings = app.settings.state.value
         software = settings.decoder == "software"
-        kernel = parseEngine(settings.playerEngine)
+        kernel = parseEngine(preferredEngineWire(settings.playerEngine, settings.playerEngineChosen, Build.SUPPORTED_ABIS.toList()))
         speed = settings.defaultSpeed
         aspect = settings.aspect
         created.setEngine(kernel, software)
@@ -280,7 +284,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         kernel = next
         fallback?.reset()
         val resume = host?.positionMs ?: _ui.value.positionMs
-        viewModelScope.launch { app.settings.update { it.copy(playerEngine = next.wire()) } }
+        viewModelScope.launch { app.settings.update { it.copy(playerEngine = next.wire(), playerEngineChosen = true) } }
         val candidate = current
         if (candidate != null) {
             play(candidate, resume)
@@ -307,6 +311,24 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             headers = headers,
         )
         if (message != null) _ui.update { it.copy(hint = message) }
+    }
+
+    fun setDecoder(useSoftware: Boolean) {
+        software = useSoftware
+        fallback?.reset()
+        val resume = host?.positionMs ?: _ui.value.positionMs
+        viewModelScope.launch {
+            app.settings.update { it.copy(decoder = if (useSoftware) "software" else "hardware") }
+        }
+        val candidate = current
+        if (candidate != null) play(candidate, resume) else host?.setEngine(kernel, software)
+        _ui.update { it.copy(hint = if (useSoftware) "已改用软解" else "已改用硬解", panel = PlayerPanel.Main) }
+        poke()
+    }
+
+    fun markSkipFromHere(intro: Boolean) {
+        val seconds = ((host?.positionMs ?: _ui.value.positionMs) / 1000L).toInt().coerceIn(0, 600)
+        if (intro) setSkip(seconds, _ui.value.outroSec) else setSkip(_ui.value.introSec, seconds)
     }
 
     fun setSkip(introSec: Int, outroSec: Int) {
@@ -479,6 +501,18 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 )
             }
         }
+    }
+
+    fun jumpEpisode(index: Int) {
+        changeEpisode(index)
+        _ui.update { it.copy(panel = PlayerPanel.Main) }
+    }
+
+    private fun currentLineEpisodes(): List<String> {
+        val selected = current ?: return emptyList()
+        val variant = item?.variants?.firstOrNull { it.sourceKey == selected.sourceKey } ?: return emptyList()
+        val line = variant.lines.firstOrNull { it.name == selected.lineName } ?: return emptyList()
+        return line.episodes.map { it.name }
     }
 
     private fun changeEpisode(index: Int) {
@@ -681,6 +715,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                         buffering = target.isBuffering || !target.hasFirstFrame && it.error == null,
                         playing = target.isPlaying,
                         engine = target.engine.wire(),
+                        bufferSpeed = if (target.isBuffering) target.bitrateLabel() else "",
                     )
                 }
                 if (ticks % 4 == 0 && target.hasFirstFrame) {
@@ -700,6 +735,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 empty = false,
                 title = item?.title.orEmpty(),
                 episodeName = selected?.episodeName ?: list.firstOrNull()?.episodeName.orEmpty(),
+                episodes = currentLineEpisodes(),
                 episodeIndex = episodeIndex,
                 canPrev = candidatesFor(episodeIndex - 1).isNotEmpty(),
                 canNext = candidatesFor(episodeIndex + 1).isNotEmpty(),

@@ -32,6 +32,8 @@ import app.jianxia.core.parser.DetectedSource
 import app.jianxia.core.parser.M3uParser
 import app.jianxia.core.parser.SourceDetector
 import app.jianxia.core.parser.TvBoxConfigParser
+import app.jianxia.core.spider.LiveSites
+import app.jianxia.core.spider.SpiderFault
 import app.jianxia.core.spider.spiderBudgetMs
 import app.jianxia.core.spider.toSpiderDef
 import app.jianxia.core.parser.TxtLiveParser
@@ -462,6 +464,7 @@ class CatalogRepository(
     private val sources: SourceRepository,
     val store: CatalogStore,
     private val spiderEnabled: () -> Boolean = { false },
+    private val spiders: app.jianxia.tv.spider.SpiderHub? = null,
 ) {
     private val registry = CatalogRegistry(http)
     private var cached: Pair<String, ExpandedSources>? = null
@@ -565,8 +568,18 @@ class CatalogRepository(
             vod.filter { it.key == id || it.key.startsWith("$id:") }.ifEmpty { null }
         } ?: vod
         val reports = expanded.reports.toMutableList()
-        if (selected.isEmpty()) {
-            val summary = HomeSiteSummary.message(expanded.sites.size, expanded.usableCount, expanded.spiderCount, expanded.failures)
+        val hidden = if (settings.showLiveOnVod) emptySet() else selected.filter {
+            LiveSites.matches(it.name, it.key, it.api)
+        }.map { it.key }.toSet()
+        hidden.forEach { id ->
+            val index = reports.indexOfFirst { it.id == id }
+            if (index >= 0) {
+                reports[index] = reports[index].copy(status = "已隐藏", detail = "直播类站点，影片页默认不显示")
+            }
+        }
+        val visible = selected.filter { it.key !in hidden }
+        if (visible.isEmpty()) {
+            val summary = HomeSiteSummary.fromReports(reports)
             return HomeCatalog(
                 rows = emptyMap(),
                 unsupported = expanded.unsupported,
@@ -576,12 +589,13 @@ class CatalogRepository(
                 reports = reports,
             ).also { lastHome = it }
         }
-        val timeout = if (selected.any { it.kind == SiteKind.SPIDER }) {
-            spiderBudgetMs(settings.searchTimeoutSec)
-        } else {
-            settings.searchTimeoutSec * 1000L
+        val spiderSites = visible.filter { it.kind == SiteKind.SPIDER }
+        if (spiderSites.isNotEmpty()) {
+            withContext(Dispatchers.IO) { runCatching { spiders?.warmup(spiderSites) } }
         }
-        val first = ParallelAggregator.collect(timeout, selected.map { site ->
+        val timeout = if (spiderSites.isNotEmpty()) 90_000L else settings.searchTimeoutSec * 1000L
+        val rowTimeout = if (spiderSites.isNotEmpty()) 20_000L else timeout
+        val first = ParallelAggregator.collect(timeout, visible.map { site ->
             suspend {
                 val attempt = runCatching { registry.create(site).list(1, null) }
                 listOf(site.key to attempt)
@@ -605,36 +619,41 @@ class CatalogRepository(
                 }
                 else -> {
                     listFailed += 1
-                    val reason = UserFacingError.message(error ?: IllegalStateException("接口没有返回内容"))
+                    val reason = if (siteOf(visible, key)?.kind == SiteKind.SPIDER) {
+                        SpiderFault.explain(error)
+                    } else {
+                        UserFacingError.message(error ?: IllegalStateException("接口没有返回内容"))
+                    }
                     if (index >= 0) reports[index] = reports[index].copy(status = "失败", detail = reason)
                 }
             }
         }
         val returned = first.items.map { it.first }.toSet()
-        selected.filter { it.key !in returned }.forEach { site ->
+        visible.filter { it.key !in returned }.forEach { site ->
             listFailed += 1
             val index = reports.indexOfFirst { it.id == site.key }
-            if (index >= 0) reports[index] = reports[index].copy(status = "失败", detail = UserFacingError.TIMEOUT)
+            val detail = if (site.kind == SiteKind.SPIDER) "爬虫超时" else UserFacingError.TIMEOUT
+            if (index >= 0) reports[index] = reports[index].copy(status = "失败", detail = detail)
         }
         val latest = mergeVodItems(pages.values.flatMap { it.items }).take(18)
         val rows = linkedMapOf<String, List<MergedVod>>()
         if (latest.isNotEmpty()) rows["latest"] = latest
-        var failed = expanded.failures + listFailed
+        var failed = reports.count { it.status == "失败" }
         for (row in listOf("movie", "tv", "variety", "anime", "doc")) {
-            val blocks = selected.mapNotNull { site ->
+            val blocks = visible.mapNotNull { site ->
                 val page = pages[site.key] ?: return@mapNotNull null
                 val typeId = page.classes.firstOrNull { CategoryMatcher.matches(row, it.name) }?.id
                     ?: return@mapNotNull null
                 suspend { registry.create(site).list(1, typeId).items }
             }
             if (blocks.isEmpty()) continue
-            val outcome = ParallelAggregator.collect(timeout, blocks)
+            val outcome = ParallelAggregator.collect(rowTimeout, blocks)
             failed += outcome.failureCount + outcome.timedOutCount
             val merged = mergeVodItems(outcome.items).take(18)
             if (merged.isNotEmpty()) rows[row] = merged
         }
         rows.values.forEach { store.putAll(it) }
-        val summary = HomeSiteSummary.message(expanded.sites.size, expanded.usableCount, expanded.spiderCount, failed)
+        val summary = HomeSiteSummary.fromReports(reports)
         val message = when {
             rows.isEmpty() -> summary
             failed > 0 || expanded.spiderCount > 0 -> summary
@@ -671,14 +690,18 @@ class CatalogRepository(
                 )
             },
             onFailure = { error ->
-                SiteBrowse(name = site.name, message = UserFacingError.message(error))
+                val message = if (site.kind == SiteKind.SPIDER) SpiderFault.explain(error) else UserFacingError.message(error)
+                SiteBrowse(name = site.name, message = message)
             },
         )
     }
 
     suspend fun search(settings: AppSettings, query: String): SearchCatalog {
         val expanded = expand()
-        val sites = expanded.sites.filter { it.searchable && it.unsupportedReason == null && it.kind != SiteKind.UNSUPPORTED }
+        val sites = expanded.sites.filter {
+            it.searchable && it.unsupportedReason == null && it.kind != SiteKind.UNSUPPORTED &&
+                (settings.showLiveOnVod || !LiveSites.matches(it.name, it.key, it.api))
+        }
         if (sites.isEmpty()) return SearchCatalog(emptyList(), "没有可搜索的点播站")
         val timeout = if (sites.any { it.kind == SiteKind.SPIDER }) {
             spiderBudgetMs(settings.searchTimeoutSec)
@@ -714,6 +737,8 @@ class CatalogRepository(
 
     suspend fun parses(): List<ParseDef> = expand().parses
 }
+
+private fun siteOf(sites: List<VodSiteDef>, key: String): VodSiteDef? = sites.firstOrNull { it.key == key }
 
 private fun VodItem.toDef(): VodSiteDef = toSpiderDef()
 

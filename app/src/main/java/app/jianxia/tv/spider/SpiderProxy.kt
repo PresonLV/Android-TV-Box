@@ -1,5 +1,6 @@
 package app.jianxia.tv.spider
 
+import com.github.catvod.spider.Proxy
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.ServerSocket
@@ -52,6 +53,7 @@ class SpiderProxy(
             socket = server
             port = server.localPort
             running.set(true)
+            Proxy.setUrl("http://127.0.0.1:$port/proxy?")
             Thread({
                 while (running.get()) {
                     val client = try {

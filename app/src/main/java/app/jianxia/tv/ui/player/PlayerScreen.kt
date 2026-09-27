@@ -49,6 +49,7 @@ import app.jianxia.tv.player.label
 import app.jianxia.tv.player.parseEngine
 import app.jianxia.tv.player.wire
 import app.jianxia.tv.player.PlayerViewModel
+import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
@@ -62,6 +63,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun PlayerScreen(onBack: () -> Unit) {
     val palette = LocalPalette.current
+    val settings by LocalApp.current.settings.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val vm: PlayerViewModel = appViewModel { PlayerViewModel(it) }
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -70,6 +72,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     val rootFocus = remember { FocusRequester() }
     val seekFocus = remember { FocusRequester() }
     var seekFocused by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
     var seekJob by remember { mutableStateOf<Job?>(null) }
     DisposableEffect(Unit) { onDispose { seekJob?.cancel() } }
     fun startSeek(direction: Int) {
@@ -89,11 +92,12 @@ fun PlayerScreen(onBack: () -> Unit) {
             }
         }
     }
-    BackHandler(enabled = ui.panel != PlayerPanel.Hidden || ui.countdown != null) {
+    BackHandler(enabled = true) {
         when {
+            confirmLeave -> confirmLeave = false
             ui.countdown != null -> vm.cancelCountdown()
-            ui.panel != PlayerPanel.Main && ui.panel != PlayerPanel.Hidden -> vm.showMain()
-            else -> vm.hide()
+            ui.panel != PlayerPanel.Hidden -> vm.hide()
+            else -> confirmLeave = true
         }
     }
     LaunchedEffect(ui.panel) {
@@ -132,11 +136,22 @@ fun PlayerScreen(onBack: () -> Unit) {
                     }
                     return@onPreviewKeyEvent true
                 }
-                if (!down || event.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent false
+                if (!down) return@onPreviewKeyEvent false
                 when (code) {
+                    KeyEvent.KEYCODE_MENU -> {
+                        if (event.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true
+                        vm.panel(PlayerPanel.Menu)
+                        true
+                    }
                     KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                        if (ui.panel == PlayerPanel.Hidden) {
-                            vm.showMain()
+                        val longPress = event.nativeKeyEvent.isLongPress
+                        if (longPress && code != KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                            vm.panel(PlayerPanel.Menu)
+                            true
+                        } else if (event.nativeKeyEvent.repeatCount > 0) {
+                            true
+                        } else if (ui.panel == PlayerPanel.Hidden) {
+                            vm.playPause()
                             true
                         } else if (code == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                             vm.playPause()
@@ -145,9 +160,15 @@ fun PlayerScreen(onBack: () -> Unit) {
                             false
                         }
                     }
-                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    KeyEvent.KEYCODE_DPAD_UP -> {
                         if (ui.panel == PlayerPanel.Hidden) {
-                            vm.showMain()
+                            vm.panel(PlayerPanel.Episodes)
+                            true
+                        } else false
+                    }
+                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (ui.panel == PlayerPanel.Hidden) {
+                            vm.panel(PlayerPanel.Lines)
                             true
                         } else false
                     }
@@ -198,6 +219,47 @@ fun PlayerScreen(onBack: () -> Unit) {
                 }
                 if (ui.probing) Text("正在测速", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
                 when (ui.panel) {
+                    PlayerPanel.Episodes -> {
+                        var episodePage by remember(ui.selectedLineId, ui.episodes.size) {
+                            mutableStateOf((ui.episodeIndex / 40).coerceAtLeast(0))
+                        }
+                        val pages = ((ui.episodes.size + 39) / 40).coerceAtLeast(1)
+                        val page = episodePage.coerceIn(0, pages - 1)
+                        Column {
+                            if (pages > 1) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    repeat(pages) { index ->
+                                        val start = index * 40 + 1
+                                        val end = minOf(ui.episodes.size, (index + 1) * 40)
+                                        SelectChip("$start-$end", index == page) { episodePage = index }
+                                    }
+                                }
+                            }
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(top = if (pages > 1) 8.dp else 0.dp),
+                            ) {
+                                ui.episodes.drop(page * 40).take(40).forEachIndexed { offset, name ->
+                                    val index = page * 40 + offset
+                                    SelectChip(name.ifBlank { "第 ${index + 1} 集" }, index == ui.episodeIndex) { vm.jumpEpisode(index) }
+                                }
+                                if (ui.episodes.isEmpty()) Text("这一线路没有分集", color = Color.White)
+                            }
+                        }
+                    }
+                    PlayerPanel.Menu -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
+                        TvButton("画面比例") { vm.panel(PlayerPanel.Aspect) }
+                        TvButton("播放器内核") { vm.panel(PlayerPanel.Engine) }
+                        SelectChip("硬解", settings.decoder != "software") { vm.setDecoder(false) }
+                        SelectChip("软解", settings.decoder == "software") { vm.setDecoder(true) }
+                        TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
+                        TvButton("字幕") { vm.panel(PlayerPanel.Subtitle) }
+                        TvButton("弹幕") { vm.panel(PlayerPanel.Danmaku) }
+                        TvButton("换源") { vm.panel(PlayerPanel.Lines) }
+                        TvButton("外部播放器") { vm.openExternal(context) }
+                    }
                     PlayerPanel.Lines -> Column {
                         ui.lines.forEach { line ->
                             SelectChip(
@@ -277,6 +339,10 @@ fun PlayerScreen(onBack: () -> Unit) {
                         }
                     }
                     PlayerPanel.Skip -> Column {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                            TvButton("当前位置设为片头") { vm.markSkipFromHere(true) }
+                            TvButton("当前位置设为片尾") { vm.markSkipFromHere(false) }
+                        }
                         Text("片头", color = Color.White)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
                             listOf(0, 15, 30, 60, 90, 120).forEach { sec ->
@@ -311,7 +377,23 @@ fun PlayerScreen(onBack: () -> Unit) {
             }
         }
         if (ui.buffering && ui.error == null && !ui.empty) {
-            Text("正在缓冲", color = Color.White, modifier = Modifier.align(Alignment.Center))
+            Text(
+                if (ui.bufferSpeed.isBlank()) "正在缓冲" else "正在缓冲  ${ui.bufferSpeed}",
+                color = Color.White,
+                modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+        if (confirmLeave) {
+            Column(
+                Modifier.align(Alignment.Center).clip(RoundedCornerShape(18.dp)).background(Color(0xE612151C)).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("退出播放？", color = Color.White, fontSize = 22.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 16.dp)) {
+                    TvButton("继续看", primary = true) { confirmLeave = false }
+                    TvButton("退出") { onBack() }
+                }
+            }
         }
     }
 }

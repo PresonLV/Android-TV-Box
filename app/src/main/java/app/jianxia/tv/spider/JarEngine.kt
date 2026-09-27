@@ -8,18 +8,26 @@ import app.jianxia.core.model.VodSiteDef
 import app.jianxia.core.spider.SpiderJson
 import app.jianxia.core.spider.SpiderPlay
 import app.jianxia.core.spider.jarClassNames
-import com.github.catvod.spider.Init
-import dalvik.system.DexClassLoader
+import app.jianxia.tv.data.net.Ua
 import java.io.File
 import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Modifier
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipFile
 
 internal class JarEngine(
     private val context: Context,
     private val cache: JarCache,
 ) {
-    private val loaders = java.util.concurrent.ConcurrentHashMap<String, DexClassLoader>()
+    private val loaders = java.util.concurrent.ConcurrentHashMap<String, JarClassLoader>()
     private val sessions = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    private val preparing = AtomicInteger(0)
+
+    fun preparing(): Boolean = preparing.get() > 0
+
+    fun hot(def: VodSiteDef): Boolean = sessions.containsKey(def.key)
+
+    fun cold(def: VodSiteDef): Boolean = !cache.ready(def.spiderJar)
 
     fun clear() {
         sessions.clear()
@@ -63,26 +71,87 @@ internal class JarEngine(
         return invokeOptional(spider, "proxyLocal", params)
             ?: invokeOptional(spider, "localProxy", params)
             ?: invokeOptional(spider, "proxy", params)
+            ?: guardProxy(params)
+    }
+
+    fun guardProxy(params: Map<String, String>): Any? {
+        for (loader in loaders.values) {
+            val type = runCatching { loader.loadClass("com.github.catvod.spider.Proxy") }.getOrNull() ?: continue
+            val method = type.methods.firstOrNull { it.name == "proxy" && Modifier.isStatic(it.modifiers) } ?: continue
+            val value = runCatching { method.invoke(null, params) }.getOrNull()
+            if (value != null) return value
+        }
+        return null
+    }
+
+    fun warmup(raw: String, userAgent: String) {
+        preparing.incrementAndGet()
+        try {
+            val jar = cache.file(raw, userAgent)
+            loaders.getOrPut(jar.absolutePath) {
+                val created = classLoader(jar)
+                boot(created)
+                created
+            }
+        } finally {
+            preparing.decrementAndGet()
+        }
     }
 
     private fun session(def: VodSiteDef): Any = sessions.getOrPut(def.key) {
-        Init.init(context)
-        val jar = cache.file(def.spiderJar, def.userAgent)
-        val loader = loaders.getOrPut(jar.absolutePath) { classLoader(jar) }
-        val type = jarClassNames(def.api).firstNotNullOfOrNull { name ->
-            runCatching { loader.loadClass(name) }.getOrNull()
-        } ?: throw IllegalStateException("找不到爬虫类 ${def.api}")
-        val spider = type.getDeclaredConstructor().newInstance()
-        invokeOptional(spider, "init", context, def.spiderExt) ?: invokeOptional(spider, "init", context)
-        spider
+        preparing.incrementAndGet()
+        try {
+            val jar = cache.file(def.spiderJar, def.userAgent)
+            val loader = loaders.getOrPut(jar.absolutePath) {
+                val created = classLoader(jar)
+                boot(created)
+                created
+            }
+            val type = jarClassNames(def.api).firstNotNullOfOrNull { name ->
+                runCatching { loader.loadClass(name) }.getOrNull()
+            } ?: throw IllegalStateException("找不到爬虫类 ${def.api}")
+            val spider = type.getDeclaredConstructor().newInstance()
+            val ext = resolveExt(def.spiderExt, def.userAgent)
+            val app = context.applicationContext
+            invokeOptional(spider, "init", app, ext) ?: invokeOptional(spider, "init", app)
+            spider
+        } finally {
+            preparing.decrementAndGet()
+        }
     }
 
-    private fun classLoader(jar: File): DexClassLoader {
+    private fun boot(loader: JarClassLoader) {
+        val init = runCatching { loader.loadClass("com.github.catvod.spider.Init") }.getOrNull() ?: return
+        val method = init.methods.firstOrNull {
+            it.name == "init" && Modifier.isStatic(it.modifiers) && it.parameterTypes.size == 1
+        } ?: return
+        val app = context.applicationContext
+        val arg = if (method.parameterTypes[0].isAssignableFrom(app.javaClass)) app else context
+        method.isAccessible = true
+        try {
+            method.invoke(null, arg)
+        } catch (error: InvocationTargetException) {
+            val cause = error.targetException ?: error
+            if (cause is UnsatisfiedLinkError || cause.cause is UnsatisfiedLinkError) {
+                throw IllegalStateException("爬虫原生库和当前 CPU 不匹配", cause)
+            }
+            throw cause
+        }
+    }
+
+    private fun resolveExt(raw: String, userAgent: String): String {
+        val value = raw.trim()
+        if (!value.startsWith("http://") && !value.startsWith("https://")) return value
+        val text = cache.text(value, userAgent)
+        return text.ifBlank { value }
+    }
+
+    private fun classLoader(jar: File): JarClassLoader {
         val libs = File(jar.parentFile, jar.nameWithoutExtension + "-lib")
         libs.mkdirs()
         extractLibs(jar, libs)
         val opt = File(context.codeCacheDir, "spider-opt").apply { mkdirs() }
-        return DexClassLoader(jar.absolutePath, opt.absolutePath, libs.absolutePath, context.classLoader)
+        return JarClassLoader(jar.absolutePath, opt.absolutePath, libs.absolutePath, context.classLoader)
     }
 
     private fun extractLibs(jar: File, dest: File) {

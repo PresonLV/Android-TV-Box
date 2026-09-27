@@ -188,9 +188,11 @@ fun AppSettings.resetSection(section: String): AppSettings {
             posterSize = fresh.posterSize,
             homeLayout = fresh.homeLayout,
             reduceMotion = fresh.reduceMotion,
+            showLiveOnVod = fresh.showLiveOnVod,
         )
         "play" -> copy(
             playerEngine = fresh.playerEngine,
+            playerEngineChosen = false,
             decoder = fresh.decoder,
             defaultSpeed = fresh.defaultSpeed,
             aspect = fresh.aspect,

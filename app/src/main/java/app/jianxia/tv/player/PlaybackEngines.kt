@@ -20,6 +20,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -103,6 +104,7 @@ class PlaybackHost(context: Context) {
     private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private val headerSource = HeaderSource()
+    private val bandwidthMeter = DefaultBandwidthMeter.Builder(appContext).build()
     private var libVlc: LibVLC? = null
     private var mediaPlayer: MediaPlayer? = null
     private var exo: ExoPlayer? = null
@@ -171,7 +173,14 @@ class PlaybackHost(context: Context) {
         mount()
     }
 
+    fun bitrateLabel(): String {
+        val bits = bandwidthMeter.bitrateEstimate
+        if (bits <= 0L || bits == Long.MAX_VALUE) return ""
+        return if (bits >= 1_000_000) String.format("%.1f MB/s", bits / 1_000_000.0) else "${bits / 1000} KB/s"
+    }
+
     fun play(open: StreamOpen) {
+        headerSource.listener = bandwidthMeter
         currentOpen = open
         speed = open.speed
         hasFirstFrame = false
@@ -181,11 +190,29 @@ class PlaybackHost(context: Context) {
         generation += 1
         val token = generation
         handler.removeCallbacks(stall)
-        ensurePlayer()
-        mount()
-        when (engine) {
-            EngineId.Exo -> startExo(open)
-            EngineId.Vlc -> startVlc(open)
+        try {
+            ensurePlayer()
+            mount()
+            when (engine) {
+                EngineId.Exo -> startExo(open)
+                EngineId.Vlc -> startVlc(open)
+            }
+        } catch (error: Throwable) {
+            if (engine == EngineId.Vlc) {
+                engine = EngineId.Exo
+                releasePlayers()
+                runCatching {
+                    ensurePlayer()
+                    mount()
+                    startExo(open)
+                }.onFailure {
+                    fail(it.message ?: "播放器启动失败")
+                    return
+                }
+            } else {
+                fail(error.message ?: "播放器启动失败")
+                return
+            }
         }
         applySpeed()
         applyAspect()
@@ -316,7 +343,12 @@ class PlaybackHost(context: Context) {
         val options = ArrayList<String>()
         options += "--network-caching=2000"
         options += "--audio-time-stretch"
-        val created = LibVLC(appContext, options)
+        options += "--no-drop-late-frames"
+        val created = try {
+            LibVLC(appContext, options)
+        } catch (error: Throwable) {
+            throw IllegalStateException("VLC 无法启动", error)
+        }
         libVlc = created
         return created
     }
@@ -536,6 +568,8 @@ class PlaybackHost(context: Context) {
         @Volatile var userAgent: String = Ua.MEDIA
         @Volatile var headers: Map<String, String> = emptyMap()
 
+        @Volatile var listener: androidx.media3.datasource.TransferListener? = null
+
         override fun createDataSource(): androidx.media3.datasource.DataSource =
             DefaultHttpDataSource.Factory()
                 .setUserAgent(userAgent)
@@ -543,6 +577,7 @@ class PlaybackHost(context: Context) {
                 .setAllowCrossProtocolRedirects(true)
                 .setConnectTimeoutMs(12_000)
                 .setReadTimeoutMs(20_000)
+                .setTransferListener(listener)
                 .createDataSource()
     }
 

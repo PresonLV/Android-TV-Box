@@ -34,6 +34,7 @@ class JianXiaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashStore.install(this)
         installImageLoader(this)
         container = AppContainer(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(container.lan.observer)
@@ -52,8 +53,8 @@ class AppContainer(context: Application) {
     val settings = SettingsRepository(context)
     val sources = SourceRepository(database.sources(), http)
     val library = LibraryRepository(database.library())
-    val catalog = CatalogRepository(http, sources, CatalogStore()) { settings.state.value.spiderEnabled }
     val spiders = SpiderHub(context, http) { spiderBudgetMs(settings.state.value.searchTimeoutSec) }
+    val catalog = CatalogRepository(http, sources, CatalogStore(), { settings.state.value.spiderEnabled }, spiders)
     val live = LiveRepository(http)
     val douban = DoubanRepository(http, context.cacheDir)
     val danmaku = DanmakuClient(http)

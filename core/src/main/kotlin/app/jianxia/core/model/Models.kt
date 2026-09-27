@@ -219,4 +219,19 @@ object HomeSiteSummary {
         val spiderText = if (spiders > 0) "，$spiders 个是爬虫（JAR/JS）未打开" else ""
         return "共 $total 个站点：$usable 个可用$spiderText，$failed 个加载失败"
     }
+
+    /** 每个站点只计入一种结果，避免「100 个可用，100 个失败」。 */
+    fun fromReports(reports: List<SiteReport>): String {
+        val ok = reports.count { it.status == "可用" }
+        val failed = reports.count { it.status == "失败" }
+        val closed = reports.count { it.status == "爬虫" }
+        val hidden = reports.count { it.status == "已隐藏" }
+        val other = (reports.size - ok - failed - closed - hidden).coerceAtLeast(0)
+        val parts = mutableListOf("$ok 个可用")
+        if (closed > 0) parts += "$closed 个爬虫未打开"
+        if (hidden > 0) parts += "$hidden 个直播类已隐藏"
+        if (other > 0) parts += "$other 个不支持"
+        parts += "$failed 个加载失败"
+        return "共 ${reports.size} 个站点：" + parts.joinToString("，")
+    }
 }

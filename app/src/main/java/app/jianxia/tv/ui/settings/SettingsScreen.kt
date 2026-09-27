@@ -526,6 +526,16 @@ private fun AboutPage() {
     var licenseHint by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
+        val crash = remember { app.jianxia.tv.CrashStore.read(context.applicationContext as android.app.Application) }
+        if (crash.isNotBlank()) {
+            Text("最近一次崩溃", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 16.dp))
+            Text(crash, color = palette.muted, modifier = Modifier.padding(top = 8.dp).width(720.dp), fontSize = 12.sp)
+            TvButton("复制崩溃记录", modifier = Modifier.padding(top = 8.dp)) {
+                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("个人影院崩溃", crash))
+                licenseHint = "已复制崩溃记录"
+            }
+        }
         Text(
             "个人影院 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。显示名是个人影院，包名仍是 app.jianxia.tv，已安装的版本可以直接升级，原有接口和设置会保留。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR / JS 爬虫默认关闭。要在设置里确认后才会下载并运行配置中的远程代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
             color = palette.muted,

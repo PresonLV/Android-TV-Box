@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -213,16 +214,23 @@ fun Poster(
 ) {
     val palette = LocalPalette.current
     val context = LocalContext.current
+    val candidates = remember(url) { app.jianxia.core.douban.PosterUrls.candidates(url) }
+    var attempt by remember(url) { androidx.compose.runtime.mutableIntStateOf(0) }
+    var gaveUp by remember(url) { androidx.compose.runtime.mutableStateOf(false) }
+    val current = candidates.getOrNull(attempt)
     Box(modifier.background(palette.surface2), contentAlignment = Alignment.Center) {
         Text(title.take(1).ifBlank { "片" }, color = palette.accent, fontSize = 28.sp, fontWeight = FontWeight.Medium)
-        if (!url.isNullOrBlank()) {
+        if (current != null && !gaveUp) {
             AsyncImage(
-                model = remember(url, maxWidthPx, maxHeightPx, fade) {
-                    limitedImage(context, url, maxWidthPx, maxHeightPx, fade)
+                model = remember(current, maxWidthPx, maxHeightPx, fade) {
+                    limitedImage(context, current, maxWidthPx, maxHeightPx, fade)
                 },
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
+                onError = {
+                    if (attempt < candidates.lastIndex) attempt += 1 else gaveUp = true
+                },
             )
         }
     }

@@ -56,6 +56,10 @@ public class Spider {
         return null;
     }
 
+    public String action(String action) {
+        return "";
+    }
+
     public void destroy() {
     }
 }

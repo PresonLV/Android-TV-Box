@@ -100,28 +100,46 @@ private fun decodeText(bytes: ByteArray): String {
 }
 
 internal class JarCache(private val dir: File, private val http: OkHttpClient) {
-    fun file(raw: String, userAgent: String): File {
-        val ref = parseJarRef(raw) ?: throw IllegalStateException("爬虫 JAR 地址无效")
-        dir.mkdirs()
+    private val locks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    fun ready(raw: String): Boolean {
+        val ref = parseJarRef(raw) ?: return false
         val name = (ref.md5 ?: md5Bytes(ref.url.toByteArray())) + ".jar"
         val target = File(dir, name)
-        if (target.isFile && target.length() > 0 && (ref.md5 == null || md5Bytes(target.readBytes()) == ref.md5)) {
-            return target
+        return target.isFile && target.length() > 4
+    }
+
+    fun text(url: String, userAgent: String): String {
+        val loaded = http.bytes(url, listOf(userAgent, Ua.CONFIG, "Mozilla/5.0"), 1_500_000, 20_000)
+        if (loaded.code !in 200..299 || loaded.bytes.isEmpty()) return ""
+        return runCatching { String(loaded.bytes, Charsets.UTF_8) }.getOrDefault("")
+    }
+
+    fun file(raw: String, userAgent: String): File {
+        val ref = parseJarRef(raw) ?: throw IllegalStateException("爬虫 JAR 地址无效")
+        val lock = locks.getOrPut(ref.md5 ?: ref.url) { Any() }
+        synchronized(lock) {
+            dir.mkdirs()
+            val name = (ref.md5 ?: md5Bytes(ref.url.toByteArray())) + ".jar"
+            val target = File(dir, name)
+            if (target.isFile && target.length() > 0 && (ref.md5 == null || md5Bytes(target.readBytes()) == ref.md5)) {
+                return target
+            }
+            val loaded = http.bytes(
+                ref.url,
+                listOf(userAgent, Ua.CONFIG, "Mozilla/5.0"),
+                32_000_000,
+                45_000,
+            )
+            if (loaded.code !in 200..299 || loaded.bytes.size < 4 || loaded.bytes[0] != 'P'.code.toByte() || loaded.bytes[1] != 'K'.code.toByte()) {
+                throw IllegalStateException("爬虫 JAR 下载失败（${loaded.code}）")
+            }
+            val bytes = loaded.bytes
+            val digest = md5Bytes(bytes)
+            if (ref.md5 != null && digest != ref.md5) throw IllegalStateException("爬虫 JAR 校验不一致")
+            val named = if (ref.md5 != null) target else File(dir, "$digest.jar")
+            named.writeBytes(bytes)
+            return named
         }
-        val loaded = http.bytes(
-            ref.url,
-            listOf(userAgent, Ua.CONFIG, "Mozilla/5.0"),
-            32_000_000,
-            30_000,
-        )
-        if (loaded.code !in 200..299 || loaded.bytes.size < 4 || loaded.bytes[0] != 'P'.code.toByte() || loaded.bytes[1] != 'K'.code.toByte()) {
-            throw IllegalStateException("爬虫 JAR 下载失败（${loaded.code}）")
-        }
-        val bytes = loaded.bytes
-        val digest = md5Bytes(bytes)
-        if (ref.md5 != null && digest != ref.md5) throw IllegalStateException("爬虫 JAR 校验不一致")
-        val named = if (ref.md5 != null) target else File(dir, "$digest.jar")
-        named.writeBytes(bytes)
-        return named
     }
 }

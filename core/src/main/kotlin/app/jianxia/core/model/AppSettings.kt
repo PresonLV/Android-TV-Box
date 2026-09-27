@@ -71,6 +71,8 @@ data class AppSettings(
     val subtitlePosition: String = "bottom",
     val subtitleOffsetMs: Int = 0,
     val spiderEnabled: Boolean = false,
+    val showLiveOnVod: Boolean = false,
+    val playerEngineChosen: Boolean = false,
 ) {
     fun sanitized(): AppSettings = copy(
         themeMode = when (themeMode) {

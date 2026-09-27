@@ -518,7 +518,14 @@ class LanServer(
         output.flush()
     }
 
-    private fun page(unlocked: Boolean): String = if (unlocked) UNLOCKED_PAGE else LOCKED_PAGE
+    private fun page(unlocked: Boolean): String {
+        val raw = if (unlocked) UNLOCKED_PAGE else LOCKED_PAGE
+        val crash = app.jianxia.tv.CrashStore.read(context.filesDir)
+        if (crash.isBlank()) return raw
+        val safe = crash.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        val block = "<h2>最近一次崩溃</h2><pre style=\"white-space:pre-wrap\">$safe</pre>"
+        return raw.replace("</main>", "$block</main>")
+    }
 
     private companion object {
         private const val LOCKED_PAGE = """
