@@ -126,7 +126,7 @@ fun HomeScreen(
     val (posterW, posterH) = posterSize(settings.posterSize)
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
-        Text("TV NET", color = palette.text, fontSize = 28.sp)
+        Text("个人影院", color = palette.text, fontSize = 28.sp)
         val note = state.catalog?.message
         if (!note.isNullOrBlank() && !showEmpty) {
             Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
@@ -142,7 +142,7 @@ fun HomeScreen(
                 Column(Modifier.weight(1f)) {
                     Text("还没有接口", color = palette.text, fontSize = 32.sp)
                     Text(
-                        "TV NET 不内置任何片源。推荐用手机扫描右侧二维码添加，这是最省事的办法。也可以用电视上的屏幕键盘输入网址。",
+                        "个人影院不内置任何片源。推荐用手机扫描右侧二维码添加，这是最省事的办法。也可以用电视上的屏幕键盘输入网址。",
                         color = palette.muted,
                         fontSize = 16.sp,
                         lineHeight = 24.sp,

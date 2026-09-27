@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import app.jianxia.core.model.AppSettings
 import app.jianxia.tv.AppContainer
 
-val LocalApp = staticCompositionLocalOf<AppContainer> { error("TV NET 还没有初始化") }
+val LocalApp = staticCompositionLocalOf<AppContainer> { error("个人影院还没有初始化") }
 val LocalPalette = staticCompositionLocalOf { darkPalette(Color(0xFFE2B15A)) }
 
 data class Palette(

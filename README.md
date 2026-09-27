@@ -1,19 +1,21 @@
-# TV NET
+# 个人影院
 
-TV NET 是一个 Android 电视播放器，桌面和 Leanback 启动器上显示的名字是 TV NET。包名仍是 `app.jianxia.tv`，已安装的版本可以直接覆盖升级，接口、设置和播放记录都会保留。安装包里没有点播片源，也没有把频道表打进去。第一次打开时会加入一份公共直播「公共频道（iptv-org）」，频道列表在使用时从 [iptv-org](https://github.com/iptv-org/iptv) 在线获取，默认是中国，可以更换、停用或删除。点播接口仍然只能自己添加。
+个人影院是一个 Android 电视播放器，桌面和 Leanback 启动器上显示的名字是个人影院。包名仍是 `app.jianxia.tv`，已安装的版本可以直接覆盖升级，接口、设置和播放记录都会保留。安装包里没有点播片源，也没有把频道表打进去。第一次打开时会加入一份公共直播「公共频道（iptv-org）」，频道列表在使用时从 [iptv-org](https://github.com/iptv-org/iptv) 在线获取，默认是中国，可以更换、停用或删除。点播接口仍然只能自己添加。
 
 界面文字为简体中文，可以用遥控器完成全部操作。
 
 ## 下载
 
-优先安装 **`tvnet-universal.apk`**。很多盒子是 64 位芯片、32 位系统，只含 arm64 的安装包会装不上；通用包里同时有 32 位和 64 位库，系统会自己选。
+优先安装 **`geren-yingyuan-universal.apk`**。很多盒子是 64 位芯片、32 位系统，只含 arm64 的安装包会装不上；通用包里同时有 32 位和 64 位库，系统会自己选。
 
 另外两个是按架构拆开的，只有在你确定系统位数、又想少占一点空间时再用：
 
-- `tvnet-armeabi-v7a.apk`：32 位系统
-- `tvnet-arm64-v8a.apk`：64 位系统
+- `geren-yingyuan-armeabi-v7a.apk`：32 位系统
+- `geren-yingyuan-arm64-v8a.apk`：64 位系统
 
 最低系统为 Android 5.0（API 21）。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.3.1-beta`）是预发布版本。内置了 VLC 的原生库，安装包会比早期版本大。
+
+0.4.3-beta 把用户看到的名字从 TV NET 改成「个人影院」，包括启动器名称、图标和电视横幅、首页标题和导航、影院大图在没有片名时的占位、关于页、设置里的外观预览、备份剪贴板标签，以及手机扫码页的标题。安装包文件名是 `geren-yingyuan-universal.apk`、`geren-yingyuan-armeabi-v7a.apk`、`geren-yingyuan-arm64-v8a.apk`。包名仍是 `app.jianxia.tv`，覆盖安装会保留原来的接口和设置。
 
 0.4.2-beta 的筛选页只有五行：精选标签、年代、地区、类型、排序，下面是带评分的海报。没有「风云榜」和「新片预告」。列表来自豆瓣公开接口，走和 0.3.0 一样的豆瓣代理设置。选中一部后，会在你已经添加的接口里搜索并打开，不播放豆瓣上的片源。站点状态里，可用的苹果 CMS 或爬虫如果配置了 `filters`，可以用同一套芯片筛选该站点，选中后直接打开详情。
 
@@ -25,7 +27,7 @@ TV NET 是一个 Android 电视播放器，桌面和 Leanback 启动器上显示
 
 0.3.1-beta 把用户看到的名字从「简匣」改成 TV NET，包括启动器名称、电视横幅、首页标题、关于页和手机扫码页。包名没有改。
 
-0.3.0-beta 增加了豆瓣评分和短评、豆瓣分类浏览、m3u8 广告切片过滤、用户自备的 danmu_api 弹幕，以及外挂字幕。豆瓣分类、播放列表改写和弹幕接口的做法参考了 [MoonTVPlus](https://github.com/mtvpls/MoonTVPlus)（MIT）。TV NET 没有内置弹幕服务器，也没有内置点播片源。
+0.3.0-beta 增加了豆瓣评分和短评、豆瓣分类浏览、m3u8 广告切片过滤、用户自备的 danmu_api 弹幕，以及外挂字幕。豆瓣分类、播放列表改写和弹幕接口的做法参考了 [MoonTVPlus](https://github.com/mtvpls/MoonTVPlus)（MIT）。个人影院没有内置弹幕服务器，也没有内置点播片源。
 
 ## 安装
 
@@ -40,13 +42,13 @@ TV NET 是一个 Android 电视播放器，桌面和 Leanback 启动器上显示
 
 1. 电脑安装当贝助手，用数据线连接盒子，或让盒子与电脑处于同一局域网。
 2. 在当贝助手里选择「安装本地 APK」，选中对应架构的 APK。
-3. 安装完成后，在电视桌面的「应用」或 Leanback 启动器里打开「TV NET」。
+3. 安装完成后，在电视桌面的「应用」或 Leanback 启动器里打开「个人影院」。
 
 ### adb
 
 ```bash
 adb connect 电视IP:5555
-adb install -r tvnet-universal.apk
+adb install -r geren-yingyuan-universal.apk
 adb shell am start -n app.jianxia.tv/.MainActivity
 ```
 
@@ -56,7 +58,7 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 
 首页没有点播接口时，右侧就是 **手机扫码添加**。手机和电视要在同一个局域网。页面打开后可以粘贴一个地址，也可以一次粘贴很多网址（每行一个，或和说明文字混在一起）。每个地址会单独显示「成功」「已存在」或失败原因。口令显示在电视上。
 
-直播里默认有「公共频道（iptv-org）」。频道列表来自 iptv-org，默认打开中国列表 `https://iptv-org.github.io/iptv/countries/cn.m3u`。直播页顶部有「体育」：它把已启用直播源里分组或名称带有体育、CCTV-5、CCTV-5+、广东体育、五星体育、sports 的频道收在一起，并额外读取 iptv-org 的公共体育列表 `https://iptv-org.github.io/iptv/categories/sports.m3u`，只留下能认出的中文频道。CCTV-5 和 CCTV-5+ 排在最前。同名频道合成一条，里面的多条地址会测速后自动用较快的一条。这里不会另外加入付费体育信号。直播页可以按国家、分类（例如新闻、少儿、音乐）或语言换成 iptv-org 公布的其他列表，这些列表都是打开时再下载的。列表里标了 Geo-blocked 的频道会先灰掉；附近几个频道会做一次短探测，失败的也会灰掉，可以重试。iptv-org 若在列表头或不大的节目单索引里提供 XMLTV，会用来显示当前节目。这份节目单索引目前很大且没有可用地址时，TV NET 不会整份下载。
+直播里默认有「公共频道（iptv-org）」。频道列表来自 iptv-org，默认打开中国列表 `https://iptv-org.github.io/iptv/countries/cn.m3u`。直播页顶部有「体育」：它把已启用直播源里分组或名称带有体育、CCTV-5、CCTV-5+、广东体育、五星体育、sports 的频道收在一起，并额外读取 iptv-org 的公共体育列表 `https://iptv-org.github.io/iptv/categories/sports.m3u`，只留下能认出的中文频道。CCTV-5 和 CCTV-5+ 排在最前。同名频道合成一条，里面的多条地址会测速后自动用较快的一条。这里不会另外加入付费体育信号。直播页可以按国家、分类（例如新闻、少儿、音乐）或语言换成 iptv-org 公布的其他列表，这些列表都是打开时再下载的。列表里标了 Geo-blocked 的频道会先灰掉；附近几个频道会做一次短探测，失败的也会灰掉，可以重试。iptv-org 若在列表头或不大的节目单索引里提供 XMLTV，会用来显示当前节目。这份节目单索引目前很大且没有可用地址时，个人影院不会整份下载。
 
 电视上的「在电视上添加」使用应用内的屏幕键盘，可以用遥控器输入网址，也有 `http://`、`.com`、`.json` 这类快捷键。如果还是想用系统输入法，对话框里可以切换「使用系统键盘」。
 
@@ -135,6 +137,6 @@ GitHub Actions 工作流 `.github/workflows/build.yml` 会运行单元测试、�
 
 ## 许可
 
-本仓库采用 Apache License 2.0。TV NET 的代码是独立编写的，只在格式上兼容常见的 TVBox 配置和苹果 CMS 接口，不包含其他项目的源码。
+本仓库采用 Apache License 2.0。个人影院的代码是独立编写的，只在格式上兼容常见的 TVBox 配置和苹果 CMS 接口，不包含其他项目的源码。
 
 内置播放器使用 VideoLAN 的 libVLC（VLC for Android），该库以 GNU LGPL-2.1 许可发布。源码见 https://code.videolan.org/videolan/vlc-android ，许可证见 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html 。应用内「关于 / 开源许可」也写了同样的归属。系统内核使用的 Media3 / ExoPlayer 为 Apache License 2.0。

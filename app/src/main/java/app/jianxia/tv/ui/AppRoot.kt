@@ -187,7 +187,7 @@ private fun CinemaRail(current: String, reduceMotion: Boolean, onSelect: (String
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            "TV NET",
+            "个人影院",
             color = palette.accent,
             fontSize = if (expanded) 15.sp else 11.sp,
             modifier = Modifier.padding(bottom = 12.dp),
@@ -232,7 +232,7 @@ private fun Rail(current: String, onSelect: (String) -> Unit) {
         Modifier.width(108.dp).fillMaxHeight().background(palette.bg.copy(alpha = 0.35f)).padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("TV NET", color = palette.accent, fontSize = 15.sp, modifier = Modifier.padding(bottom = 18.dp), maxLines = 1, softWrap = false)
+        Text("个人影院", color = palette.accent, fontSize = 14.sp, modifier = Modifier.padding(bottom = 18.dp), maxLines = 1, softWrap = false)
         rail.forEach { item ->
             val selected = current == item.route
             Surface(

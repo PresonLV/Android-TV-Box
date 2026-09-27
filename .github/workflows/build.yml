@@ -34,15 +34,15 @@ jobs:
       - name: 整理安装包
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/release/*universal*.apk dist/tvnet-universal.apk
-          cp app/build/outputs/apk/release/*arm64-v8a*.apk dist/tvnet-arm64-v8a.apk
-          cp app/build/outputs/apk/release/*armeabi-v7a*.apk dist/tvnet-armeabi-v7a.apk
+          cp app/build/outputs/apk/release/*universal*.apk dist/geren-yingyuan-universal.apk
+          cp app/build/outputs/apk/release/*arm64-v8a*.apk dist/geren-yingyuan-arm64-v8a.apk
+          cp app/build/outputs/apk/release/*armeabi-v7a*.apk dist/geren-yingyuan-armeabi-v7a.apk
           ls -lh dist
 
       - name: 上传 APK
         uses: actions/upload-artifact@v4
         with:
-          name: tvnet-apk
+          name: geren-yingyuan-apk
           path: dist/*.apk
           if-no-files-found: error
 
