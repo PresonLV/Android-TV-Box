@@ -384,7 +384,7 @@ private fun BackupPage() {
                 scope.launch {
                     val text = app.backup.export()
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("简匣备份", text))
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("TV NET 备份", text))
                     message = "备份已复制。手机页面也可以下载。"
                 }
             }
@@ -489,28 +489,28 @@ private fun AboutPage() {
     Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         Text(
-            "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
+            "TV NET ${app.jianxia.tv.BuildConfig.VERSION_NAME}。显示名是 TV NET，包名仍是 app.jianxia.tv，已安装的版本可以直接升级，原有接口和设置会保留。安装包里没有点播片源。第一次打开会加入「公共频道（iptv-org）」，频道表在使用时从网上获取，默认是中国，可以停用或删除。点播接口仍然只能自己添加。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。可以一次粘贴多个网址。",
             color = palette.muted,
             modifier = Modifier.padding(top = 12.dp).width(720.dp),
             lineHeight = 24.sp,
         )
         Text("公共频道", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
         Text(
-            "频道列表来自 iptv-org。这些是公开的免费直播地址，简匣不把频道表打进安装包，也不提供点播片源。列表和项目主页：https://github.com/iptv-org/iptv",
+            "频道列表来自 iptv-org。这些是公开的免费直播地址，TV NET 不把频道表打进安装包，也不提供点播片源。列表和项目主页：https://github.com/iptv-org/iptv",
             color = palette.muted,
             modifier = Modifier.padding(top = 8.dp).width(720.dp),
             lineHeight = 24.sp,
         )
         Text("豆瓣、去广告和弹幕", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
         Text(
-            "豆瓣分类、把 m3u8 在本地改写后再交给播放器、以及按 danmu_api 拉取弹幕，这些做法参考了 MoonTVPlus（MIT，https://github.com/mtvpls/MoonTVPlus）。简匣按自己的界面重新实现，没有复制它的源码，也没有内置弹幕服务器或付费片源。弹幕接口需要自己填写。",
+            "豆瓣分类、把 m3u8 在本地改写后再交给播放器、以及按 danmu_api 拉取弹幕，这些做法参考了 MoonTVPlus（MIT，https://github.com/mtvpls/MoonTVPlus）。TV NET 按自己的界面重新实现，没有复制它的源码，也没有内置弹幕服务器或付费片源。弹幕接口需要自己填写。",
             color = palette.muted,
             modifier = Modifier.padding(top = 8.dp).width(720.dp),
             lineHeight = 24.sp,
         )
         Text("播放器内核", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
         Text(
-            "默认内核是 VideoLAN 的 libVLC（VLC for Android 3.6）。libVLC 以 GNU LGPL-2.1 发布。简匣调用它的公开接口，没有修改它的源码。也可以在播放设置里改用系统内核（Media3 / ExoPlayer，Apache License 2.0）。\n\n简匣自身的代码以 Apache License 2.0 发布。",
+            "默认内核是 VideoLAN 的 libVLC（VLC for Android 3.6）。libVLC 以 GNU LGPL-2.1 发布。TV NET 调用它的公开接口，没有修改它的源码。也可以在播放设置里改用系统内核（Media3 / ExoPlayer，Apache License 2.0）。\n\nTV NET 自身的代码以 Apache License 2.0 发布。",
             color = palette.muted,
             modifier = Modifier.padding(top = 8.dp).width(720.dp),
             lineHeight = 24.sp,

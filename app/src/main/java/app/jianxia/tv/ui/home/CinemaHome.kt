@@ -320,7 +320,7 @@ private fun CinemaHero(bus: CinemaBus, reduceMotion: Boolean) {
             ) { item ->
                 Column {
                     Text(
-                        item?.title ?: "简匣",
+                        item?.title ?: "TV NET",
                         color = Color.White,
                         fontSize = 34.sp,
                         fontWeight = FontWeight.Medium,
@@ -491,7 +491,7 @@ private fun CinemaEmpty(onSettings: () -> Unit) {
         Column(Modifier.weight(1f)) {
             Text("还没有接口", color = palette.text, fontSize = 32.sp, fontWeight = FontWeight.Medium)
             Text(
-                "简匣不内置任何片源。推荐用手机扫描右侧二维码添加。也可以用电视上的屏幕键盘输入网址。",
+                "TV NET 不内置任何片源。推荐用手机扫描右侧二维码添加。也可以用电视上的屏幕键盘输入网址。",
                 color = palette.muted,
                 fontSize = 16.sp,
                 lineHeight = 24.sp,

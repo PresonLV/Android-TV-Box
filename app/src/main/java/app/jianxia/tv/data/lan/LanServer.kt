@@ -523,13 +523,13 @@ class LanServer(
     private companion object {
         private const val LOCKED_PAGE = """
             <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1"><title>简匣</title>
+            <meta name="viewport" content="width=device-width,initial-scale=1"><title>TV NET</title>
             <style>body{margin:0;font-family:sans-serif;background:#12151c;color:#f4f1ea}main{max-width:640px;margin:0 auto;padding:24px}p{color:#b7b1a6}</style>
-            </head><body><main><h1>简匣</h1><p>请扫描电视上的二维码打开这个页面。口令只显示在电视屏幕上。</p></main></body></html>
+            </head><body><main><h1>TV NET</h1><p>请扫描电视上的二维码打开这个页面。口令只显示在电视屏幕上。</p></main></body></html>
         """
         private const val UNLOCKED_PAGE = """
             <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1"><title>简匣</title>
+            <meta name="viewport" content="width=device-width,initial-scale=1"><title>TV NET</title>
             <style>
             body{margin:0;font-family:sans-serif;background:#12151c;color:#f4f1ea}
             main{max-width:640px;margin:0 auto;padding:24px}
@@ -548,7 +548,7 @@ class LanServer(
             .thumbs img{width:96px;height:54px;object-fit:cover;display:block}
             .swatches i{display:block;width:56px;height:36px}
             </style></head><body><main>
-            <h1>简匣</h1>
+            <h1>TV NET</h1>
             <p>在这里粘贴接口地址。点播片源需要自己添加。可以一次粘贴很多网址：每行一个，或和说明文字混在一起。重复的会标成已存在。</p>
             <label>名称（可选，只在添加一个地址时使用）<input id="name" placeholder="例如：家里的配置"></label>
             <label>地址<textarea id="url" rows="5" placeholder="https:// 可以一次粘贴多个"></textarea></label>
@@ -575,7 +575,7 @@ class LanServer(
             </div>
             <p id="lookMsg"></p>
             <h2>豆瓣、去广告、弹幕、字幕</h2>
-            <p>豆瓣只用来显示评分和短评，点进去会用你自己的接口搜索。弹幕需要自己填写 danmu_api 地址，简匣不内置弹幕服务器。去广告规则一行一条，按地址正则匹配。</p>
+            <p>豆瓣只用来显示评分和短评，点进去会用你自己的接口搜索。弹幕需要自己填写 danmu_api 地址，TV NET 不内置弹幕服务器。去广告规则一行一条，按地址正则匹配。</p>
             <label>豆瓣数据<select id="doubanData"><option value="direct">直连</option><option value="img3">img3 图片 CDN</option><option value="custom">自定义前缀</option></select></label>
             <label>豆瓣数据代理<input id="doubanDataUrl" placeholder="https://代理/{url} 或前缀"></label>
             <label>豆瓣图片<select id="doubanImage"><option value="direct">直连</option><option value="img3">img3.doubanio.com</option><option value="custom">自定义前缀</option></select></label>

@@ -91,7 +91,7 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
             Text("当前外观", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
             Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(18.dp))) {
                 WallpaperLayer(settings, Modifier.fillMaxSize())
-                Text("简匣", color = palette.text, fontSize = 28.sp, modifier = Modifier.padding(16.dp))
+                Text("TV NET", color = palette.text, fontSize = 28.sp, modifier = Modifier.padding(16.dp))
             }
         }
     }
@@ -149,7 +149,7 @@ internal fun ThemeStudio() {
             Box(Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(18.dp))) {
                 WallpaperLayer(settings, Modifier.fillMaxSize())
                 Column(Modifier.padding(16.dp)) {
-                    Text("简匣", color = palette.accent, fontSize = 26.sp)
+                    Text("TV NET", color = palette.accent, fontSize = 26.sp)
                     Text("这是标题", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 12.dp))
                     Text("这是说明文字", color = palette.muted, modifier = Modifier.padding(top = 6.dp))
                     Box(Modifier.padding(top = 16.dp).width(88.dp).height(36.dp).clip(RoundedCornerShape(10.dp)).background(palette.accent))
