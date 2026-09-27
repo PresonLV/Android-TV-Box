@@ -9,6 +9,7 @@ import app.jianxia.core.backup.BatchLine
 import app.jianxia.core.backup.BatchPlan
 import app.jianxia.core.backup.UrlList
 import app.jianxia.core.live.IptvOrg
+import app.jianxia.core.live.SportsLive
 import app.jianxia.core.backup.withRecentSearch
 import app.jianxia.core.merge.CategoryMatcher
 import app.jianxia.core.merge.mergeVodItems
@@ -633,6 +634,12 @@ class LiveRepository(private val http: NetClient) {
                 else -> "直播列表是空的"
             },
         )
+    }
+
+    suspend fun sportsPlaylist(): List<LiveChannel> = withContext(Dispatchers.IO) {
+        val text = runCatching { http.textBlocking(SportsLive.playlistUrl(), maxBytes = 2_000_000) }.getOrNull() ?: return@withContext emptyList()
+        val parsed = if (text.contains("#EXTM3U", ignoreCase = true)) M3uParser.parse(text) else emptyList()
+        if (parsed.isEmpty() || M3uParser.looksLikeSegments(parsed)) emptyList() else parsed
     }
 
     private fun readGuides(urls: List<String>): EpgGuide {

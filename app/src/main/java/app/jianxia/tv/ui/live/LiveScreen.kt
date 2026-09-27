@@ -39,7 +39,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.jianxia.core.live.IptvOrg
+import app.jianxia.core.live.SportsLive
 import app.jianxia.core.model.EpgGuide
+import app.jianxia.core.model.LineProbe
 import app.jianxia.core.model.LiveChannel
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.player.EngineFallback
@@ -78,6 +80,10 @@ data class LiveState(
     val publicKind: String = "country",
     val unavailable: Set<String> = emptySet(),
     val retry: Int = 0,
+    val catalog: List<LiveChannel> = emptyList(),
+    val showingSports: Boolean = false,
+    val sportsLines: List<List<LiveChannel>> = emptyList(),
+    val sportsLoading: Boolean = false,
 )
 
 data class PickerState(
@@ -93,6 +99,7 @@ class LiveViewModel(private val app: AppContainer) : ViewModel() {
     private val _picker = MutableStateFlow(PickerState())
     val picker: StateFlow<PickerState> = _picker.asStateFlow()
     private var probeJob: Job? = null
+    private var rankToken = 0
     private val checked = mutableSetOf<String>()
 
     fun load(force: Boolean = false) {
@@ -125,6 +132,7 @@ class LiveViewModel(private val app: AppContainer) : ViewModel() {
             _state.value = LiveState(
                 loading = false,
                 channels = loaded.channels,
+                catalog = loaded.channels,
                 guide = loaded.guide,
                 error = loaded.error,
                 public = hasPublic,
@@ -134,6 +142,45 @@ class LiveViewModel(private val app: AppContainer) : ViewModel() {
                 unavailable = blocked,
             )
         }
+    }
+
+    fun showSports() {
+        probeJob?.cancel()
+        viewModelScope.launch {
+            _picker.value = PickerState()
+            val current = _state.value
+            val catalog = current.catalog.ifEmpty { current.channels }
+            _state.value = current.copy(showingSports = true, sportsLoading = true, channels = emptyList(), error = null)
+            val playlist = runCatching { app.live.sportsPlaylist() }.getOrDefault(emptyList())
+            val entries = SportsLive.aggregate(catalog, playlist)
+            val lines = entries.map { it.lines }
+            val visible = entries.map { it.lines.first() }
+            val blocked = visible.filter { IptvOrg.listedAsBlocked(it.name) }.map { it.url }.toSet()
+            checked += blocked
+            _state.value = _state.value.copy(
+                loading = false,
+                showingSports = true,
+                sportsLoading = false,
+                sportsLines = lines,
+                channels = visible,
+                catalog = catalog,
+                unavailable = _state.value.unavailable + blocked,
+                error = if (visible.isEmpty()) "没有找到体育频道" else null,
+            )
+        }
+    }
+
+    fun showAll() {
+        probeJob?.cancel()
+        val current = _state.value
+        val catalog = current.catalog.ifEmpty { current.channels }
+        _state.value = current.copy(
+            showingSports = false,
+            sportsLoading = false,
+            sportsLines = emptyList(),
+            channels = catalog,
+            error = if (catalog.isEmpty()) current.error ?: "直播列表是空的" else null,
+        )
     }
 
     fun openPicker(kind: String) {
@@ -183,6 +230,9 @@ class LiveViewModel(private val app: AppContainer) : ViewModel() {
         val channels = _state.value.channels
         if (channels.isEmpty()) return
         probeJob?.cancel()
+        if (_state.value.showingSports) {
+            rankSportsLines(index)
+        }
         probeJob = viewModelScope.launch {
             val slice = channels.drop((index + 1).coerceAtLeast(0)).take(6)
             val gate = Semaphore(2)
@@ -211,6 +261,59 @@ class LiveViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     fun fail(url: String) = mark(url)
+
+    /** 体育条目里还有别的线路时换下一条，并返回 true。 */
+    fun advanceSportsLine(index: Int): Boolean {
+        val current = _state.value
+        if (!current.showingSports) return false
+        val lines = current.sportsLines.getOrNull(index) ?: return false
+        val playing = current.channels.getOrNull(index)?.url ?: return false
+        mark(playing)
+        val next = lines.firstOrNull { it.url != playing && it.url !in _state.value.unavailable }
+        if (next == null) return false
+        val visible = current.channels.toMutableList()
+        if (index !in visible.indices) return false
+        visible[index] = next
+        _state.value = _state.value.copy(channels = visible, retry = _state.value.retry + 1)
+        return true
+    }
+
+    private fun rankSportsLines(index: Int) {
+        val lines = _state.value.sportsLines.getOrNull(index).orEmpty()
+        if (lines.size < 2) return
+        val token = ++rankToken
+        viewModelScope.launch {
+            val gate = Semaphore(2)
+            val probes = coroutineScope {
+                lines.take(4).map { line ->
+                    async {
+                        gate.acquire()
+                        try {
+                            val probe = app.http.probe(line.url)
+                            LineProbe(line.url, probe.connectMs, probe.firstByteMs, probe.resolutionHeight, probe.ok)
+                        } finally {
+                            gate.release()
+                        }
+                    }
+                }.awaitAll()
+            }
+            if (token != rankToken || !_state.value.showingSports) return@launch
+            val ranked = SportsLive.orderLines(lines, probes)
+            val best = ranked.firstOrNull { line -> probes.any { it.id == line.url && it.ok } } ?: return@launch
+            val stateNow = _state.value
+            val playing = stateNow.channels.getOrNull(index)?.url
+            val stored = stateNow.sportsLines.toMutableList()
+            if (index !in stored.indices) return@launch
+            stored[index] = ranked
+            if (best.url == playing) {
+                _state.value = stateNow.copy(sportsLines = stored)
+                return@launch
+            }
+            val visible = stateNow.channels.toMutableList()
+            visible[index] = best
+            _state.value = stateNow.copy(sportsLines = stored, channels = visible, retry = stateNow.retry + 1)
+        }
+    }
 
     fun revive(url: String) {
         checked += url
@@ -258,6 +361,8 @@ fun LiveScreen() {
     }
     val fallback = remember { EngineFallback(host) }
     val channelNow = rememberUpdatedState(state.channels.getOrNull(index))
+    val indexNow = rememberUpdatedState(index)
+    val sportsNow = rememberUpdatedState(state.showingSports)
     DisposableEffect(host) {
         host.listener = object : PlaybackHost.Listener {
             override fun onFirstFrame() {
@@ -273,6 +378,11 @@ fun LiveScreen() {
                     return
                 }
                 connecting = false
+                if (sportsNow.value && vm.advanceSportsLine(indexNow.value)) {
+                    connecting = true
+                    playError = null
+                    return
+                }
                 playError = "这个频道暂时播不了"
                 channelNow.value?.let { vm.fail(it.url) }
             }
@@ -284,7 +394,8 @@ fun LiveScreen() {
         onDispose { host.release() }
     }
     LaunchedEffect(Unit) { vm.load() }
-    LaunchedEffect(state.channels) {
+    val listKey = state.showingSports to state.channels.map { it.name }
+    LaunchedEffect(listKey) {
         if (state.channels.isEmpty()) {
             placed = false
             return@LaunchedEffect
@@ -323,7 +434,7 @@ fun LiveScreen() {
     }
     when {
         state.loading -> Box(Modifier.fillMaxSize().padding(ScreenPadding)) { CircularProgressIndicator(color = palette.accent) }
-        state.channels.isEmpty() && !state.public -> EmptyHint(
+        state.channels.isEmpty() && !state.public && !state.showingSports && !state.sportsLoading -> EmptyHint(
             "还没有直播",
             state.error ?: "可以添加公共频道，或在设置里加入自己的 M3U / TXT 直播源。",
             "添加公共频道",
@@ -346,7 +457,21 @@ fun LiveScreen() {
             },
         ) {
             Column(Modifier.width(380.dp).fillMaxHeight().padding(12.dp)) {
-                if (state.public) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SelectChip(SportsLive.LABEL, state.showingSports) { vm.showSports() }
+                    if (state.showingSports) {
+                        SelectChip("全部", false) { vm.showAll() }
+                    }
+                }
+                if (state.showingSports) {
+                    Text(
+                        "同名频道合成一条，自动用较快的线路。只汇总已启用的直播源和 iptv-org 公共体育列表。",
+                        color = palette.muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
+                    )
+                }
+                if (state.public && !state.showingSports) {
                     Text(IptvOrg.ATTRIBUTION, color = palette.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text("当前：${state.publicLabel}", color = palette.accent, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -375,17 +500,30 @@ fun LiveScreen() {
                             }
                         }
                     }
+                } else if (state.sportsLoading) {
+                    CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(top = 16.dp))
                 } else if (state.channels.isEmpty()) {
                     Text(state.error ?: "这个列表暂时是空的", color = palette.muted, modifier = Modifier.padding(top = 16.dp))
-                    TvButton("重试", modifier = Modifier.padding(top = 10.dp)) { vm.load(force = true) }
+                    if (state.showingSports) {
+                        TvButton("返回全部", modifier = Modifier.padding(top = 10.dp)) { vm.showAll() }
+                    } else {
+                        TvButton("重试", modifier = Modifier.padding(top = 10.dp)) { vm.load(force = true) }
+                    }
                 } else {
                     val listState = rememberLazyListState()
                     LaunchedEffect(index) { listState.animateScrollToItem(index) }
                     LazyColumn(state = listState, modifier = Modifier.weight(1f).padding(top = 8.dp)) {
                         itemsIndexed(state.channels, key = { itemIndex, channel -> "$itemIndex:${channel.url}" }) { itemIndex, channel ->
                             val dead = channel.url in state.unavailable
+                            val lineCount = state.sportsLines.getOrNull(itemIndex)?.size ?: 1
+                            val label = when {
+                                dead -> "${channel.name}  暂不可用"
+                                state.showingSports && lineCount > 1 -> "${channel.name}  ·  $lineCount 条线路"
+                                state.showingSports -> channel.name
+                                else -> "${channel.group}  ${channel.name}"
+                            }
                             SelectChip(
-                                if (dead) "${channel.name}  暂不可用" else "${channel.group}  ${channel.name}",
+                                label,
                                 itemIndex == index,
                                 dimmed = dead,
                                 modifier = Modifier.padding(bottom = 6.dp),
