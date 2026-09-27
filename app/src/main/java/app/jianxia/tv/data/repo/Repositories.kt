@@ -317,6 +317,9 @@ data class ResolvedLive(
     val name: String,
     val url: String,
     val epgUrl: String?,
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
 data class ExpandedSources(
@@ -385,7 +388,15 @@ class CatalogRepository(
                             if (site.unsupportedReason != null) unsupported += 1
                         }
                         config.lives.forEach { live ->
-                            lives += ResolvedLive(source.id, live.name, live.url, live.epgUrl)
+                            lives += ResolvedLive(
+                                source.id,
+                                live.name,
+                                live.url,
+                                live.epgUrl,
+                                live.userAgent,
+                                live.referer,
+                                live.headers,
+                            )
                         }
                         parses += config.parses
                     }
@@ -502,7 +513,8 @@ class LiveRepository(private val http: NetClient) {
                 val m3u = if (text.contains("#EXTM3U", ignoreCase = true)) M3uParser.parse(text) else emptyList()
                 val channels = if (m3u.isNotEmpty() && !M3uParser.looksLikeSegments(m3u)) m3u else TxtLiveParser.parse(text)
                 channels.map { channel ->
-                    if (channel.group == "未分组" || channel.group == "默认") channel.copy(group = live.name) else channel
+                    val grouped = if (channel.group == "未分组" || channel.group == "默认") channel.copy(group = live.name) else channel
+                    grouped.copy(userAgent = live.userAgent, referer = live.referer, headers = live.headers)
                 }
             }.getOrDefault(emptyList())
             all += parsed

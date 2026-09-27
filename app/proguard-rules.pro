@@ -14,6 +14,9 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+-keep class org.videolan.** { *; }
+-dontwarn org.videolan.**
+
 -dontwarn okhttp3.**
 -keep class okhttp3.dnsoverhttps.** { *; }
 -dontwarn org.jsoup.**

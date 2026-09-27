@@ -1,8 +1,9 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package app.jianxia.tv.ui.player
 
 import android.view.KeyEvent
+import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,9 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
+import app.jianxia.tv.player.EngineId
 import app.jianxia.tv.player.PlayerPanel
+import app.jianxia.tv.player.label
+import app.jianxia.tv.player.parseEngine
+import app.jianxia.tv.player.wire
 import app.jianxia.tv.player.PlayerViewModel
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.SelectChip
@@ -61,7 +65,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val vm: PlayerViewModel = appViewModel { PlayerViewModel(it) }
     val ui by vm.ui.collectAsStateWithLifecycle()
-    val player = remember { vm.attach(context) }
+    remember { vm.attach(context) }
     val scope = rememberCoroutineScope()
     val rootFocus = remember { FocusRequester() }
     val seekFocus = remember { FocusRequester() }
@@ -100,11 +104,6 @@ fun PlayerScreen(onBack: () -> Unit) {
         "16:9" -> Modifier.fillMaxHeight().aspectRatio(16f / 9f, matchHeightConstraintsFirst = true)
         "4:3" -> Modifier.fillMaxHeight().aspectRatio(4f / 3f, matchHeightConstraintsFirst = true)
         else -> Modifier.fillMaxSize()
-    }
-    val resize = when (ui.aspect) {
-        "fill" -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-        "zoom", "16:9", "4:3" -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
     }
     Box(
         Modifier
@@ -161,16 +160,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     ) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    this.player = player
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-                    resizeMode = resize
-                }
-            },
-            update = { view ->
-                view.player = player
-                view.resizeMode = resize
+                FrameLayout(ctx).also { vm.bindSurface(it) }
             },
             modifier = frame,
         )
@@ -227,6 +217,11 @@ fun PlayerScreen(onBack: () -> Unit) {
                             SelectChip(label, value == ui.aspect) { vm.setAspect(value) }
                         }
                     }
+                    PlayerPanel.Engine -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(EngineId.Vlc, EngineId.Exo).forEach { engine ->
+                            SelectChip(engine.label(), engine.wire() == ui.engine) { vm.setKernel(engine.wire()) }
+                        }
+                    }
                     PlayerPanel.Skip -> Column {
                         Text("片头", color = Color.White)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -241,7 +236,11 @@ fun PlayerScreen(onBack: () -> Unit) {
                             }
                         }
                     }
-                    else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    else -> FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
                         TvButton(if (ui.playing) "暂停" else "播放", onClick = vm::playPause)
                         TvButton("上一集", enabled = ui.canPrev, onClick = vm::previous)
                         TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
@@ -249,6 +248,8 @@ fun PlayerScreen(onBack: () -> Unit) {
                         TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
                         TvButton("画面") { vm.panel(PlayerPanel.Aspect) }
                         TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
+                        TvButton("内核 ${parseEngine(ui.engine).label()}") { vm.panel(PlayerPanel.Engine) }
+                        TvButton("用外部播放器打开") { vm.openExternal(context) }
                     }
                 }
             }

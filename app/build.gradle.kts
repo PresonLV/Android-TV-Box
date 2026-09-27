@@ -13,8 +13,8 @@ android {
         applicationId = "app.jianxia.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1-beta"
+        versionCode = 3
+        versionName = "0.2.0-beta"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -51,6 +51,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            excludes += setOf("lib/x86/**", "lib/x86_64/**")
+        }
         resources {
             excludes += setOf(
                 "META-INF/DEPENDENCIES",
@@ -94,6 +97,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("org.videolan.android:libvlc-all:3.6.3")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@layout/vlc_video_layout,@layout/surface_view,@layout/texture_view,@layout/player_remote,@string/build_libvlc_revision,@string/build_vlc_revision" />

@@ -35,6 +35,7 @@ data class AppSettings(
     val searchTimeoutSec: Int = 8,
     val autoLineSelect: Boolean = true,
     val decoder: String = "hardware",
+    val playerEngine: String = "vlc",
     val defaultSpeed: Float = 1f,
     val aspect: String = "fit",
     val startupPage: String = "vod",
@@ -52,6 +53,7 @@ data class AppSettings(
         defaultSourceId = defaultSourceId.trim(),
         searchTimeoutSec = searchTimeoutSec.coerceIn(3, 30),
         decoder = if (decoder == "software") "software" else "hardware",
+        playerEngine = if (playerEngine == "exo") "exo" else "vlc",
         defaultSpeed = when {
             defaultSpeed < 0.5f -> 0.5f
             defaultSpeed > 2f -> 2f

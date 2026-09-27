@@ -224,6 +224,9 @@ class MergeRankTest {
         assertFalse(settings.homeRows.first().visible)
         assertTrue(settings.homeRows.any { it.id == "history" })
         assertEquals(listOf("山海"), settings.recentSearches)
+        assertEquals("vlc", AppSettings().sanitized().playerEngine)
+        assertEquals("exo", AppSettings(playerEngine = "exo").sanitized().playerEngine)
+        assertEquals("vlc", AppSettings(playerEngine = "nope").sanitized().playerEngine)
         val raw = BackupCodec.encode(
             app.jianxia.core.model.BackupBundle(
                 settings = settings,
@@ -236,6 +239,45 @@ class MergeRankTest {
         val decoded = BackupCodec.decode(raw)
         assertEquals(1, decoded.sources.size)
         assertEquals("https://example.test/a", decoded.sources.single().url)
+    }
+
+    @Test
+    fun tvboxHeadersStayOnSiteAndLive() {
+        val config = TvBoxConfigParser.parse(
+            """
+            {
+              "sites": [
+                {
+                  "key": "headed",
+                  "name": "带请求头",
+                  "type": 1,
+                  "api": "https://example.test/api",
+                  "ua": "DemoUA/1.0",
+                  "header": {"Referer": "https://example.test/", "Cookie": "a=b", "User-Agent": "HeaderUA"}
+                },
+                {"key": "csp_spider", "name": "爬虫源", "type": 3, "api": "csp_Demo"}
+              ],
+              "lives": [
+                {
+                  "name": "直播",
+                  "type": 0,
+                  "url": "https://example.test/live.m3u",
+                  "header": "{\"User-Agent\":\"LiveUA\",\"Referer\":\"https://live.example/\",\"X-Token\":\"t\"}"
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val site = config.sites.first { it.key == "headed" }
+        assertEquals("HeaderUA", site.userAgent)
+        assertEquals("https://example.test/", site.referer)
+        assertEquals("a=b", site.headers["Cookie"])
+        assertFalse(site.headers.keys.any { it.equals("User-Agent", true) || it.equals("Referer", true) })
+        assertEquals(SiteKind.UNSUPPORTED, config.sites.first { it.key == "csp_spider" }.kind)
+        val live = config.lives.single()
+        assertEquals("LiveUA", live.userAgent)
+        assertEquals("https://live.example/", live.referer)
+        assertEquals("t", live.headers["X-Token"])
     }
 
     @Test

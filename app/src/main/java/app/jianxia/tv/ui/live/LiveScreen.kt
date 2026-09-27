@@ -1,8 +1,7 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
-
 package app.jianxia.tv.ui.live
 
 import android.view.KeyEvent
+import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,13 +35,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.ui.PlayerView
 import app.jianxia.core.model.EpgGuide
 import app.jianxia.core.model.LiveChannel
 import app.jianxia.tv.AppContainer
-import app.jianxia.tv.player.Players
+import app.jianxia.tv.player.EngineFallback
+import app.jianxia.tv.player.PlaybackHost
+import app.jianxia.tv.player.StreamOpen
+import app.jianxia.tv.player.parseEngine
 import app.jianxia.tv.ui.EmptyHint
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
@@ -98,21 +98,66 @@ fun LiveScreen() {
     val state by vm.state.collectAsStateWithLifecycle()
     val settings by app.settings.state.collectAsStateWithLifecycle()
     var index by remember { mutableIntStateOf(0) }
-    val player = remember { Players.create(context, settings.decoder == "software") }
-    DisposableEffect(Unit) {
-        onDispose { player.release() }
+    var placed by remember { mutableStateOf(false) }
+    var connecting by remember { mutableStateOf(false) }
+    var playError by remember { mutableStateOf<String?>(null) }
+    val host = remember {
+        PlaybackHost(context).also { created ->
+            val current = app.settings.state.value
+            created.setEngine(parseEngine(current.playerEngine), current.decoder == "software")
+        }
+    }
+    val fallback = remember { EngineFallback(host) }
+    DisposableEffect(host) {
+        host.listener = object : PlaybackHost.Listener {
+            override fun onFirstFrame() {
+                connecting = false
+                playError = null
+            }
+
+            override fun onFailure(message: String) {
+                if (!host.hasFirstFrame && fallback.onFailed()) {
+                    connecting = true
+                    playError = null
+                    return
+                }
+                connecting = false
+                playError = "这个频道暂时播不了"
+            }
+
+            override fun onState(playing: Boolean, buffering: Boolean) {
+                connecting = !host.hasFirstFrame || buffering
+            }
+        }
+        onDispose { host.release() }
     }
     LaunchedEffect(Unit) { vm.load() }
     LaunchedEffect(state.channels) {
-        if (state.channels.isEmpty()) return@LaunchedEffect
+        if (state.channels.isEmpty()) {
+            placed = false
+            return@LaunchedEffect
+        }
         val saved = state.channels.indexOfFirst { it.url == settings.lastLiveUrl }
         index = if (saved >= 0) saved else 0
+        placed = true
     }
-    LaunchedEffect(index, state.channels) {
+    LaunchedEffect(index, state.channels, settings.playerEngine, settings.decoder, placed) {
+        if (!placed) return@LaunchedEffect
         val channel = state.channels.getOrNull(index) ?: return@LaunchedEffect
-        player.setMediaItem(MediaItem.fromUri(channel.url))
-        player.prepare()
-        player.playWhenReady = true
+        fallback.reset()
+        connecting = true
+        playError = null
+        host.setEngine(parseEngine(settings.playerEngine), settings.decoder == "software")
+        host.setSpeed(settings.defaultSpeed)
+        host.play(
+            StreamOpen(
+                url = channel.url,
+                userAgent = channel.userAgent,
+                referer = channel.referer,
+                headers = channel.headers,
+                speed = settings.defaultSpeed,
+            ),
+        )
         vm.remember(channel.url)
     }
     when {
@@ -148,8 +193,7 @@ fun LiveScreen() {
             }
             Box(Modifier.weight(1f).fillMaxHeight()) {
                 AndroidView(
-                    factory = { ctx -> PlayerView(ctx).apply { useController = false; this.player = player } },
-                    update = { it.player = player },
+                    factory = { ctx -> FrameLayout(ctx).also { host.bind(it) } },
                     modifier = Modifier.fillMaxSize(),
                 )
                 val channel = state.channels[index]
@@ -161,7 +205,8 @@ fun LiveScreen() {
                         Text("正在播出  ${now.title}  ${clock.format(Date(now.startMs))}-${clock.format(Date(now.stopMs))}", color = Color.White)
                     }
                     if (next != null) Text("下一档  ${next.title}", color = Color(0xFFD9D3C7))
-                    if (player.playbackState == Player.STATE_BUFFERING) Text("正在连接", color = palette.accent, modifier = Modifier.padding(top = 6.dp))
+                    if (connecting && playError == null) Text("正在连接", color = palette.accent, modifier = Modifier.padding(top = 6.dp))
+                    playError?.let { Text(it, color = palette.danger, modifier = Modifier.padding(top = 6.dp)) }
                 }
             }
         }

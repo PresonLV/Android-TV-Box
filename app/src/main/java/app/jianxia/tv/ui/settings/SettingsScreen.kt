@@ -83,7 +83,7 @@ private fun SettingsRoot(onOpen: (String) -> Unit) {
             "home" to "首页布局",
             "play" to "播放",
             "backup" to "导入与导出",
-            "about" to "关于",
+            "about" to "关于 / 开源许可",
         ).forEach { (id, label) ->
             TvButton(label, modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) { onOpen(id) }
         }
@@ -378,6 +378,15 @@ private fun PlayPage() {
             SelectChip("开", settings.autoLineSelect) { scope.launch { app.settings.update { it.copy(autoLineSelect = true) } } }
             SelectChip("关", !settings.autoLineSelect) { scope.launch { app.settings.update { it.copy(autoLineSelect = false) } } }
         }
+        Text("播放器内核", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SelectChip("VLC", settings.playerEngine != "exo") {
+                scope.launch { app.settings.update { it.copy(playerEngine = "vlc") } }
+            }
+            SelectChip("系统 (ExoPlayer)", settings.playerEngine == "exo") {
+                scope.launch { app.settings.update { it.copy(playerEngine = "exo") } }
+            }
+        }
         Text("解码", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SelectChip("硬件", settings.decoder != "software") { scope.launch { app.settings.update { it.copy(decoder = "hardware") } } }
@@ -441,15 +450,44 @@ private fun BackupPage() {
 @Composable
 private fun AboutPage() {
     val palette = LocalPalette.current
-    Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        Text("关于简匣", color = palette.text, fontSize = 26.sp)
+    val context = LocalContext.current
+    var licenseHint by remember { mutableStateOf<String?>(null) }
+    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+        Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         Text(
             "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。这是一个空壳播放器：安装包里没有片源，也没有预置接口。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。",
             color = palette.muted,
             modifier = Modifier.padding(top = 12.dp).width(720.dp),
             lineHeight = 24.sp,
         )
+        Text("播放器内核", color = palette.text, fontSize = 20.sp, modifier = Modifier.padding(top = 20.dp))
+        Text(
+            "默认内核是 VideoLAN 的 libVLC（VLC for Android 3.6）。libVLC 以 GNU LGPL-2.1 发布。简匣调用它的公开接口，没有修改它的源码。也可以在播放设置里改用系统内核（Media3 / ExoPlayer，Apache License 2.0）。\n\n简匣自身的代码以 Apache License 2.0 发布。",
+            color = palette.muted,
+            modifier = Modifier.padding(top = 8.dp).width(720.dp),
+            lineHeight = 24.sp,
+        )
+        Text(
+            "libVLC 源码：https://code.videolan.org/videolan/vlc-android\nLGPL-2.1：https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html",
+            color = palette.muted,
+            modifier = Modifier.padding(top = 8.dp).width(720.dp),
+            lineHeight = 24.sp,
+        )
+        licenseHint?.let { Text(it, color = palette.accent, modifier = Modifier.padding(top = 8.dp).width(720.dp)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+            TvButton("打开 libVLC 源码") { licenseHint = openLicense(context, "https://code.videolan.org/videolan/vlc-android") }
+            TvButton("打开 LGPL-2.1") { licenseHint = openLicense(context, "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html") }
+        }
     }
+}
+
+private fun openLicense(context: Context, url: String): String? {
+    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    return runCatching { context.startActivity(intent) }.fold(
+        onSuccess = { null },
+        onFailure = { "电视上没有浏览器，请在电脑打开：$url" },
+    )
 }
 
 private fun readClipboard(context: Context): String? {

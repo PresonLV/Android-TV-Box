@@ -41,6 +41,7 @@ object TvBoxConfigParser {
                 else -> null
             }
             val resolvedKind = if (reason != null && kind != SiteKind.UNSUPPORTED) SiteKind.UNSUPPORTED else kind
+            val meta = obj.streamMeta()
             VodSiteDef(
                 key = key,
                 name = name,
@@ -50,15 +51,22 @@ object TvBoxConfigParser {
                 quickSearch = obj.flag("quickSearch", default = true),
                 filterable = obj.flag("filterable", default = false),
                 unsupportedReason = reason,
+                userAgent = meta.userAgent,
+                referer = meta.referer,
+                headers = meta.headers,
             )
         }
         val lives = livesElement.orEmpty().mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
             val url = obj.text("url") ?: return@mapNotNull null
+            val meta = obj.streamMeta()
             LiveSourceDef(
                 name = obj.text("name") ?: "直播",
                 url = url,
                 epgUrl = obj.text("epg"),
+                userAgent = meta.userAgent,
+                referer = meta.referer,
+                headers = meta.headers,
             )
         }
         val parses = (root["parses"] as? JsonArray).orEmpty().mapNotNull { element ->

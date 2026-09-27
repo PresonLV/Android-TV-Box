@@ -78,9 +78,14 @@ class MacCmsCatalog(
     private suspend fun fetch(params: Map<String, String>): VodPage {
         val url = macCmsUrl(def.api, params)
         val text = http.text(url)
-        return when (def.kind) {
+        val page = when (def.kind) {
             SiteKind.MACCMS_XML -> MacCmsXmlParser.parse(text, def.key, def.name, def.api)
             else -> MacCmsJsonParser.parse(text, def.key, def.name, def.api)
         }
+        return page.copy(
+            items = page.items.map {
+                it.copy(userAgent = def.userAgent, referer = def.referer, headers = def.headers)
+            },
+        )
     }
 }

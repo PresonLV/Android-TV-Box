@@ -20,12 +20,18 @@ data class VodSiteDef(
     val quickSearch: Boolean = true,
     val filterable: Boolean = false,
     val unsupportedReason: String? = null,
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
 data class LiveSourceDef(
     val name: String,
     val url: String,
     val epgUrl: String? = null,
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
 data class ParseDef(
@@ -73,6 +79,9 @@ data class VodItem(
     val director: String? = null,
     val content: String? = null,
     val lines: List<PlayLine> = emptyList(),
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
 data class VodClass(
@@ -114,6 +123,9 @@ data class LiveChannel(
     val group: String,
     val logo: String? = null,
     val tvgId: String? = null,
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
 data class EpgProgramme(

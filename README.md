@@ -13,7 +13,7 @@
 - `jianxia-armeabi-v7a.apk`：32 位系统
 - `jianxia-arm64-v8a.apk`：64 位系统
 
-最低系统为 Android 5.0（API 21），这是当前这套界面和播放器能支持的最低版本。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.1.1-beta`）是预发布版本。
+最低系统为 Android 5.0（API 21）。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.2.0-beta`）是预发布版本。内置了 VLC 的原生库，安装包会比早期版本大。
 
 ## 安装
 
@@ -69,7 +69,11 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 
 详情页会列出同一部片子在各个来源里的线路和剧集。开启「自动选线」后，应用会测量连接耗时和首包时间，能读到清晰度时也会参考，然后播放目前最快且能连通的线路。播放出错或长时间卡住时，会自动换下一条。你随时可以手动换线，这个选择会按片名记住。
 
-播放器基于 Media3 / ExoPlayer，支持 HLS、DASH 和 MP4。遥控器：
+默认播放内核是内置的 VLC（libVLC 3.6）。设置里的「播放器内核」可以改成「系统 (ExoPlayer)」，播放菜单里也可以临时切换，这个选择会记住。如果当前内核出错，或 12 秒内没有画面，会自动用另一个内核再试一次；还是不行，才换下一条线路。站点配置里的 User-Agent、Referer 和其他请求头会带给正在使用的内核。
+
+播放菜单里的「用外部播放器打开」会弹出系统选择框，把当前地址交给外部播放器，并尽量带上请求头。
+
+遥控器：
 
 - 确认键：暂停或继续，并打开控制层
 - 左 / 右：按住时快退、快进，步长会逐渐加大
@@ -86,7 +90,7 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 - 首页显示哪些行、行的顺序、海报大小
 - 默认来源、搜索超时、启动时进入点播还是直播
 - 是否自动选线
-- 解码器（硬件 / 软件）、默认倍速、默认画面比例
+- 播放器内核（VLC / 系统 ExoPlayer）、解码器（硬件 / 软件）、默认倍速、默认画面比例
 
 备份是一份 JSON。可以在电视上复制，也可以在手机局域网页面下载或粘贴回去。导入会替换当前的全部设置和接口。
 
@@ -107,3 +111,5 @@ GitHub Actions 工作流 `.github/workflows/build.yml` 会运行单元测试、�
 ## 许可
 
 本仓库采用 Apache License 2.0。简匣的代码是独立编写的，只在格式上兼容常见的 TVBox 配置和苹果 CMS 接口，不包含其他项目的源码。
+
+内置播放器使用 VideoLAN 的 libVLC（VLC for Android），该库以 GNU LGPL-2.1 许可发布。源码见 https://code.videolan.org/videolan/vlc-android ，许可证见 https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html 。应用内「关于 / 开源许可」也写了同样的归属。系统内核使用的 Media3 / ExoPlayer 为 Apache License 2.0。

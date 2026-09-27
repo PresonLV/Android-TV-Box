@@ -1,12 +1,7 @@
 package app.jianxia.tv.player
 
 import android.content.Context
-import androidx.annotation.OptIn
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
+import android.widget.FrameLayout
 import app.jianxia.core.line.rankLines
 import app.jianxia.core.model.LineProbe
 import app.jianxia.core.model.MergedVod
@@ -15,7 +10,6 @@ import app.jianxia.core.parser.extractMediaUrl
 import app.jianxia.core.parser.isDirectMediaUrl
 import app.jianxia.core.parser.urlEncode
 import app.jianxia.tv.AppContainer
-import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.net.NetClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -35,7 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class PlayerPanel { Hidden, Main, Lines, Speed, Aspect, Skip }
+enum class PlayerPanel { Hidden, Main, Lines, Speed, Aspect, Skip, Engine }
 
 data class LineOption(val id: String, val label: String, val detail: String?)
 
@@ -51,6 +45,7 @@ data class PlayerUi(
     val selectedLineId: String = "",
     val speed: Float = 1f,
     val aspect: String = "fit",
+    val engine: String = "vlc",
     val playing: Boolean = true,
     val positionMs: Long = 0,
     val durationMs: Long = 0,
@@ -71,16 +66,18 @@ private data class Candidate(
     val episodeName: String,
     val url: String,
     val episodeCount: Int,
+    val userAgent: String = "",
+    val referer: String = "",
+    val headers: Map<String, String> = emptyMap(),
 )
 
-@OptIn(UnstableApi::class)
 class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private val _ui = MutableStateFlow(PlayerUi())
     val ui: StateFlow<PlayerUi> = _ui.asStateFlow()
 
-    private var player: ExoPlayer? = null
-    private var appContext: Context? = null
-    private var request: PlayRequest? = null
+    private var host: PlaybackHost? = null
+    private var fallback: EngineFallback? = null
+    private var kernel: EngineId = EngineId.Vlc
     private var item: MergedVod? = null
     private var episodeIndex = 0
     private var current: Candidate? = null
@@ -90,7 +87,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private var ranked: List<String> = emptyList()
     private val failed = mutableSetOf<String>()
     private var manual = false
-    private var softwareRetried = false
+    private var software = false
     private var introMs = 0L
     private var outroMs = 0L
     private var introApplied = false
@@ -106,19 +103,69 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private var countdown: Int? = null
     private var countdownAt = 0L
     private var attached = false
+    private var playToken = 0
 
-    fun attach(context: Context): ExoPlayer {
-        player?.let { return it }
-        val created = Players.create(context, app.settings.state.value.decoder == "software")
-        player = created
-        appContext = context.applicationContext
-        listen(created)
+    fun attach(context: Context) {
+        if (host != null) return
+        val created = PlaybackHost(context)
+        host = created
+        fallback = EngineFallback(created)
+        val settings = app.settings.state.value
+        software = settings.decoder == "software"
+        kernel = parseEngine(settings.playerEngine)
+        speed = settings.defaultSpeed
+        aspect = settings.aspect
+        created.setEngine(kernel, software)
+        created.setSpeed(speed)
+        created.setAspect(aspect)
+        created.listener = object : PlaybackHost.Listener {
+            override fun onReady() {
+                suppressEnd = false
+                outroFired = false
+                maybeIntro()
+            }
+
+            override fun onFirstFrame() {
+                suppressEnd = false
+                outroFired = false
+                maybeIntro()
+                publish()
+            }
+
+            override fun onEnded() {
+                if (!suppressEnd) finishEpisode()
+            }
+
+            override fun onFailure(message: String) {
+                val playback = host ?: return
+                if (!playback.hasFirstFrame && fallback?.onFailed() == true) {
+                    _ui.update {
+                        it.copy(
+                            engine = playback.engine.wire(),
+                            hint = "改用 ${playback.engine.label()} 重试",
+                            error = null,
+                            buffering = true,
+                        )
+                    }
+                    return
+                }
+                failover(if (playback.hasFirstFrame) "播放中断" else message.ifBlank { "播放失败" })
+            }
+
+            override fun onState(playing: Boolean, buffering: Boolean) {
+                _ui.update { it.copy(playing = playing, buffering = buffering) }
+                if (playing) lastMove = System.currentTimeMillis()
+            }
+        }
         if (!attached) {
             attached = true
             viewModelScope.launch { begin() }
             startTicker()
         }
-        return created
+    }
+
+    fun bindSurface(target: FrameLayout) {
+        host?.bind(target)
     }
 
     fun showMain() {
@@ -137,17 +184,14 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     fun playPause() {
-        val currentPlayer = player ?: return
-        if (currentPlayer.isPlaying) currentPlayer.pause() else currentPlayer.play()
+        host?.toggle()
         showMain()
     }
 
     fun seekBy(deltaMs: Long) {
-        val currentPlayer = player ?: return
-        val duration = currentPlayer.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-        val target = (currentPlayer.currentPosition + deltaMs).coerceIn(0L, duration)
-        currentPlayer.seekTo(target)
-        lastPos = target
+        val playback = host ?: return
+        playback.seekBy(deltaMs)
+        lastPos = playback.positionMs
         lastMove = System.currentTimeMillis()
         showMain()
     }
@@ -168,13 +212,48 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
 
     fun setSpeed(value: Float) {
         speed = value
-        player?.setPlaybackSpeed(value)
+        host?.setSpeed(value)
         _ui.update { it.copy(speed = value) }
     }
 
     fun setAspect(value: String) {
         aspect = value
+        host?.setAspect(value)
         _ui.update { it.copy(aspect = value) }
+    }
+
+    fun setKernel(wire: String) {
+        val next = parseEngine(wire)
+        kernel = next
+        fallback?.reset()
+        val resume = host?.positionMs ?: _ui.value.positionMs
+        viewModelScope.launch { app.settings.update { it.copy(playerEngine = next.wire()) } }
+        val candidate = current
+        if (candidate != null) {
+            play(candidate, resume)
+        } else {
+            host?.setEngine(next, software)
+        }
+        _ui.update { it.copy(engine = next.wire(), panel = PlayerPanel.Main, hint = "已切换到 ${next.label()}") }
+        poke()
+    }
+
+    fun openExternal(context: Context) {
+        val open = host?.currentOpen
+        if (open == null || open.url.isBlank()) {
+            _ui.update { it.copy(hint = "没有可打开的地址") }
+            return
+        }
+        val (agent, headers) = open.requestHeaders()
+        val message = openExternalPlayer(
+            context = context,
+            url = open.url,
+            title = _ui.value.title,
+            userAgent = agent,
+            referer = headers["Referer"].orEmpty(),
+            headers = headers,
+        )
+        if (message != null) _ui.update { it.copy(hint = message) }
     }
 
     fun setSkip(introSec: Int, outroSec: Int) {
@@ -204,7 +283,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             }
             if (best != null) {
                 failed.clear()
-                play(best, player?.currentPosition ?: 0)
+                play(best, host?.positionMs ?: 0)
                 app.library.saveLine(key, best.id)
             }
             _ui.update { it.copy(probing = false, hint = "已选择当前最快的线路") }
@@ -213,7 +292,6 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
 
     private suspend fun begin() {
         val opening = app.session.request
-        request = opening
         if (opening == null) {
             _ui.update { it.copy(empty = true, buffering = false, panel = PlayerPanel.Hidden) }
             return
@@ -223,7 +301,10 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         val settings = app.settings.state.value
         speed = settings.defaultSpeed
         aspect = settings.aspect
-        player?.setPlaybackSpeed(speed)
+        kernel = parseEngine(settings.playerEngine)
+        software = settings.decoder == "software"
+        host?.setSpeed(speed)
+        host?.setAspect(aspect)
         val skip = app.library.skip(opening.item.key)
         introMs = skip?.introMs ?: 0
         outroMs = skip?.outroMs ?: 0
@@ -278,6 +359,9 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                     episodeName = episode.name,
                     url = episode.url,
                     episodeCount = line.episodes.size,
+                    userAgent = variant.userAgent,
+                    referer = variant.referer,
+                    headers = variant.headers,
                 )
             }
         }
@@ -302,17 +386,30 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     }
 
     private fun play(candidate: Candidate, resumeMs: Long) {
-        val target = player ?: return
+        val target = host ?: return
+        val token = ++playToken
+        if (target.engine != kernel || target.software != software) {
+            target.setEngine(kernel, software)
+        }
+        fallback?.reset()
         current = candidate
         introApplied = false
         viewModelScope.launch {
             val url = resolve(candidate)
+            if (token != playToken) return@launch
             withContext(Dispatchers.Main) {
-                target.setMediaItem(MediaItem.fromUri(url))
-                target.prepare()
-                target.playWhenReady = true
-                target.setPlaybackSpeed(speed)
-                if (resumeMs > 3_000) target.seekTo(resumeMs)
+                if (token != playToken) return@withContext
+                target.setAspect(aspect)
+                target.play(
+                    StreamOpen(
+                        url = url,
+                        userAgent = candidate.userAgent,
+                        referer = candidate.referer,
+                        headers = candidate.headers,
+                        resumeMs = resumeMs,
+                        speed = speed,
+                    ),
+                )
             }
             lastMove = System.currentTimeMillis()
             lastPos = resumeMs
@@ -365,64 +462,19 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         }
     }
 
-    private fun listen(target: ExoPlayer) {
-        target.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                val decoder = error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
-                    error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
-                if (decoder && !softwareRetried) {
-                    softwareRetried = true
-                    rebuild(software = true)
-                    return
-                }
-                failover("播放失败")
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    suppressEnd = false
-                    outroFired = false
-                    maybeIntro()
-                }
-                if (playbackState == Player.STATE_ENDED && !suppressEnd) onEnded()
-                _ui.update {
-                    it.copy(
-                        buffering = playbackState == Player.STATE_BUFFERING,
-                        playing = target.isPlaying,
-                    )
-                }
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _ui.update { it.copy(playing = isPlaying) }
-                if (isPlaying) lastMove = System.currentTimeMillis()
-            }
-        })
-    }
-
-    private fun rebuild(software: Boolean) {
-        val context = appContext ?: return
-        val resume = player?.currentPosition ?: 0
-        val candidate = current
-        player?.release()
-        val created = Players.create(context, software)
-        player = created
-        listen(created)
-        if (candidate != null) play(candidate, resume)
-        _ui.update { it.copy(hint = "已改用软件解码重试") }
-    }
-
     private fun maybeIntro() {
-        val target = player ?: return
+        val target = host ?: return
         if (introApplied || introMs <= 0) return
-        val duration = target.duration
-        if (target.currentPosition < 2_000 && duration > introMs + 5_000) {
+        val duration = target.durationMs
+        if (target.positionMs < 2_000 && duration > introMs + 5_000) {
             target.seekTo(introMs)
             introApplied = true
+            lastPos = introMs
+            lastMove = System.currentTimeMillis()
         }
     }
 
-    private fun onEnded() {
+    private fun finishEpisode() {
         if (outroFired) return
         if (candidatesFor(episodeIndex + 1).isEmpty()) {
             _ui.update { it.copy(hint = "播放结束", playing = false, countdown = null) }
@@ -439,21 +491,22 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             var ticks = 0
             while (isActive) {
                 delay(500)
-                val target = player ?: continue
-                val position = target.currentPosition
-                val duration = target.duration.coerceAtLeast(0)
+                val target = host ?: continue
+                val position = target.positionMs
+                val duration = target.durationMs
                 if (target.isPlaying && position > lastPos + 400) {
                     lastPos = position
                     lastMove = System.currentTimeMillis()
                 }
                 val now = System.currentTimeMillis()
-                if (target.playbackState == Player.STATE_BUFFERING && target.playWhenReady) {
+                if (target.hasFirstFrame) maybeIntro()
+                if (target.hasFirstFrame && target.isBuffering) {
                     if (bufferingSince == 0L) bufferingSince = now
                     if (now - bufferingSince > 12_000) failover("缓冲超时")
                 } else {
                     bufferingSince = 0
                 }
-                if (target.isPlaying && position > 0 && now - lastMove > 15_000) {
+                if (target.hasFirstFrame && target.isPlaying && position > 0 && now - lastMove > 15_000) {
                     failover("播放停滞")
                 }
                 if (!outroFired && !suppressEnd && outroMs > 0 && duration > outroMs + 5_000 && duration - position in 1..outroMs) {
@@ -476,8 +529,9 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                     it.copy(
                         positionMs = position,
                         durationMs = duration,
-                        buffering = target.playbackState == Player.STATE_BUFFERING,
+                        buffering = target.isBuffering || !target.hasFirstFrame && it.error == null,
                         playing = target.isPlaying,
+                        engine = target.engine.wire(),
                     )
                 }
                 ticks += 1
@@ -513,6 +567,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 },
                 speed = speed,
                 aspect = aspect,
+                engine = host?.engine?.wire() ?: kernel.wire(),
                 introSec = (introMs / 1000).toInt(),
                 outroSec = (outroMs / 1000).toInt(),
             )
@@ -530,22 +585,22 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private suspend fun saveHistory() {
         val currentItem = item ?: return
         val candidate = current ?: return
-        val position = player?.currentPosition ?: _ui.value.positionMs
+        val position = host?.positionMs ?: _ui.value.positionMs
         if (position < 1_000) return
         app.library.saveHistory(
             item = currentItem,
             episodeIndex = episodeIndex,
             episodeName = candidate.episodeName,
             positionMs = position,
-            durationMs = player?.duration?.coerceAtLeast(0) ?: 0,
+            durationMs = host?.durationMs ?: 0,
             lineId = candidate.id,
         )
     }
 
     override fun onCleared() {
         runBlocking(Dispatchers.IO) { runCatching { saveHistory() } }
-        player?.release()
-        player = null
+        host?.release()
+        host = null
         super.onCleared()
     }
 }
