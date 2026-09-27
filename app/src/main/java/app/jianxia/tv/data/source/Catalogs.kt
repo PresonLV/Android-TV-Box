@@ -6,8 +6,10 @@ import app.jianxia.core.model.VodPage
 import app.jianxia.core.model.VodSiteDef
 import app.jianxia.core.parser.MacCmsJsonParser
 import app.jianxia.core.parser.MacCmsXmlParser
+import app.jianxia.core.parser.macCmsBrowseActions
 import app.jianxia.core.parser.macCmsUrl
 import app.jianxia.tv.data.net.NetClient
+import kotlinx.coroutines.CancellationException
 
 interface VodCatalog {
     val def: VodSiteDef
@@ -55,14 +57,17 @@ class MacCmsCatalog(
     private val http: NetClient,
 ) : VodCatalog {
     override suspend fun list(page: Int, typeId: String?): VodPage {
-        val params = linkedMapOf("ac" to "list", "pg" to page.toString())
+        val params = linkedMapOf("pg" to page.toString())
         if (!typeId.isNullOrBlank()) params["t"] = typeId
-        return fetch(params)
+        return browse(params)
     }
 
     override suspend fun search(keyword: String): VodPage {
-        val action = if (def.kind == SiteKind.MACCMS_XML) "videolist" else "detail"
-        return fetch(mapOf("ac" to action, "wd" to keyword))
+        val first = if (def.kind == SiteKind.MACCMS_XML) "videolist" else "detail"
+        val second = if (first == "videolist") "detail" else "videolist"
+        val page = fetch(mapOf("ac" to first, "wd" to keyword))
+        if (page.items.isNotEmpty()) return page
+        return runCatching { fetch(mapOf("ac" to second, "wd" to keyword)) }.getOrDefault(page)
     }
 
     override suspend fun detail(id: String): VodItem? {
@@ -73,6 +78,31 @@ class MacCmsCatalog(
             return fetch(mapOf("ac" to "detail", "ids" to id)).items.firstOrNull { it.id == id } ?: item
         }
         return item
+    }
+
+    /**
+     * ac=list 经常只有分类、没有节目。这时再请求 ac=videolist。
+     * 两次都失败才把错误抛出去，让首页记成这个站点加载失败。
+     */
+    private suspend fun browse(params: Map<String, String>): VodPage {
+        var last: Exception? = null
+        var empty: VodPage? = null
+        for (action in macCmsBrowseActions(def.kind)) {
+            try {
+                val page = fetch(params + ("ac" to action))
+                if (page.items.isNotEmpty()) {
+                    val classes = empty?.classes.orEmpty()
+                    return if (classes.isNotEmpty() && page.classes.isEmpty()) page.copy(classes = classes) else page
+                }
+                val current = empty
+                if (current == null || (page.classes.isNotEmpty() && current.classes.isEmpty())) empty = page
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                last = error
+            }
+        }
+        if (empty != null) return empty
+        throw last ?: IllegalStateException("接口没有返回内容")
     }
 
     private suspend fun fetch(params: Map<String, String>): VodPage {

@@ -32,6 +32,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
 import app.jianxia.core.UserFacingError
 import app.jianxia.core.model.MergedVod
+import app.jianxia.core.model.SiteReport
 import app.jianxia.core.model.displayTitle
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
@@ -83,8 +84,15 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
+    var showSites by remember { mutableStateOf(false) }
     val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}:${it.kind}:${it.note}" }
     LaunchedEffect(fingerprint, settings.defaultSourceId, settings.searchTimeoutSec) { vm.load() }
+    if (showSites) {
+        SiteStatusPage(state.catalog?.reports.orEmpty(), state.catalog?.message) { showSites = false }
+        return
+    }
+    val noTitles = state.catalog?.rows?.values?.none { it.isNotEmpty() } != false
+    val showEmpty = sources.any { it.enabled } && noTitles && history.isEmpty() && favorites.isEmpty() && !state.loading
     if (settings.homeLayout == "cinema") {
         CinemaHome(
             app = app,
@@ -101,6 +109,8 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
             onPlay = onPlay,
             onSettings = onSettings,
             onRetry = { vm.load() },
+            onSites = { showSites = true },
+            showEmpty = showEmpty,
             onDouban = onDouban,
             onSearch = onSearch,
         )
@@ -111,8 +121,11 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
         Text("TV NET", color = palette.text, fontSize = 28.sp)
         val note = state.catalog?.message
-        if (!note.isNullOrBlank()) {
+        if (!note.isNullOrBlank() && !showEmpty) {
             Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+            if (state.catalog?.reports.isNullOrEmpty().not()) {
+                TvButton("查看站点状态", modifier = Modifier.padding(bottom = 8.dp)) { showSites = true }
+            }
         }
         when {
             sources.none { it.enabled } -> Row(
@@ -186,9 +199,16 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
                         }
                     }
                 }
-                if (state.catalog?.rows.isNullOrEmpty() && history.isEmpty() && favorites.isEmpty() && !state.loading) {
-                    Text(state.error ?: "这些接口暂时没有返回点播内容。", color = palette.muted, modifier = Modifier.padding(top = 24.dp))
-                    TvButton("重试", modifier = Modifier.padding(top = 12.dp)) { vm.load() }
+                if (showEmpty) {
+                    Text(
+                        state.error ?: state.catalog?.message ?: "这些接口暂时没有返回点播内容。",
+                        color = palette.muted,
+                        modifier = Modifier.padding(top = 24.dp),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
+                        TvButton("重试") { vm.load() }
+                        TvButton("查看站点状态") { showSites = true }
+                    }
                 }
             }
         }
@@ -205,6 +225,37 @@ private fun BoxCenter() {
 }
 
 private fun meta(item: MergedVod): String = listOfNotNull(item.year, item.remarks, item.typeName).joinToString(" · ")
+
+@Composable
+private fun SiteStatusPage(reports: List<SiteReport>, summary: String?, onBack: () -> Unit) {
+    val palette = LocalPalette.current
+    val ordered = reports.sortedBy { statusRank(it.status) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
+        Text("站点状态", color = palette.text, fontSize = 28.sp)
+        if (!summary.isNullOrBlank()) {
+            Text(summary, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+        }
+        TvButton("返回", primary = true, onClick = onBack)
+        if (ordered.isEmpty()) {
+            Text("还没有站点记录。先添加配置，再回到首页。", color = palette.muted, modifier = Modifier.padding(top = 16.dp))
+        }
+        ordered.forEach { report ->
+            Text(
+                "${report.configName} · ${report.siteName}",
+                color = palette.text,
+                fontSize = 18.sp,
+                modifier = Modifier.padding(top = 16.dp),
+            )
+            Text("${report.status}：${report.detail}", color = palette.muted, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+private fun statusRank(status: String): Int = when (status) {
+    "失败" -> 0
+    "可用" -> 1
+    else -> 2
+}
 
 @Composable
 private fun factory(create: (AppContainer) -> ViewModel): ViewModelProvider.Factory {

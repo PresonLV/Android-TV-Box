@@ -179,3 +179,17 @@ data class AggregateOutcome<T>(
     val failureCount: Int,
     val timedOutCount: Int,
 )
+
+/** 首页每个站点的结果，用来解释为什么没有海报。 */
+data class SiteReport(
+    val id: String,
+    val configName: String,
+    val siteName: String,
+    val status: String,
+    val detail: String,
+)
+
+object HomeSiteSummary {
+    fun message(total: Int, usable: Int, spiders: Int, failed: Int): String =
+        "共 $total 个站点：$usable 个可用，$spiders 个是爬虫（JAR/JS）暂不支持，$failed 个加载失败"
+}

@@ -1,7 +1,11 @@
 package app.jianxia.core.parser
 
+import app.jianxia.core.model.SiteKind
 import java.net.URLDecoder
 import java.net.URLEncoder
+
+/** 首页和分类先走 ac=list。没有条目时再试 ac=videolist，两种苹果 CMS 都这样。 */
+fun macCmsBrowseActions(kind: SiteKind): List<String> = listOf("list", "videolist")
 
 fun macCmsUrl(api: String, params: Map<String, String>): String {
     val trimmed = api.trim()

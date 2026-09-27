@@ -7,6 +7,8 @@ import app.jianxia.core.backup.BackupCodec
 import app.jianxia.core.line.lineScore
 import app.jianxia.core.line.rankLines
 import app.jianxia.core.merge.CategoryMatcher
+import app.jianxia.core.model.HomeSiteSummary
+import app.jianxia.core.parser.macCmsBrowseActions
 import app.jianxia.core.merge.mergeKey
 import app.jianxia.core.merge.mergeVodItems
 import app.jianxia.core.merge.normalizeTitle
@@ -175,6 +177,26 @@ class MergeRankTest {
         assertEquals(listOf("甲", "乙"), merged.first().variants.map { it.sourceName })
         assertEquals(mergeKey("山海灯市", "2024"), merged.first().key)
         assertTrue(normalizeTitle("山海灯市 HD") == normalizeTitle("山海灯市"))
+    }
+
+    @Test
+    fun homeSummaryCountsSpidersSeparatelyFromFailures() {
+        assertEquals(
+            "共 53 个站点：9 个可用，44 个是爬虫（JAR/JS）暂不支持，3 个加载失败",
+            HomeSiteSummary.message(53, 9, 44, 3),
+        )
+        assertEquals(
+            "共 47 个站点：0 个可用，47 个是爬虫（JAR/JS）暂不支持，0 个加载失败",
+            HomeSiteSummary.message(47, 0, 47, 0),
+        )
+    }
+
+    @Test
+    fun browseTriesListBeforeVideolist() {
+        assertEquals(listOf("list", "videolist"), macCmsBrowseActions(SiteKind.MACCMS_JSON))
+        assertEquals(listOf("list", "videolist"), macCmsBrowseActions(SiteKind.MACCMS_XML))
+        val url = macCmsUrl("https://example.test/api.php/provide/vod/?ac=list", mapOf("ac" to "videolist", "pg" to "1"))
+        assertEquals("https://example.test/api.php/provide/vod/?ac=videolist&pg=1", url)
     }
 
     @Test

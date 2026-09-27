@@ -109,6 +109,8 @@ internal fun CinemaHome(
     onPlay: () -> Unit,
     onSettings: () -> Unit,
     onRetry: () -> Unit,
+    onSites: () -> Unit,
+    showEmpty: Boolean,
     onDouban: () -> Unit,
     onSearch: (String) -> Unit,
 ) {
@@ -179,12 +181,22 @@ internal fun CinemaHome(
                                 }
                             }
                         }
-                        if (catalog?.rows.isNullOrEmpty() && history.isEmpty() && favorites.isEmpty() && !loading) {
-                            Text(error ?: "这些接口暂时没有返回点播内容。", color = palette.muted, modifier = Modifier.padding(start = 28.dp, top = 12.dp))
-                            TvButton("重试", modifier = Modifier.padding(start = 28.dp, top = 12.dp), onClick = onRetry)
+                        if (showEmpty) {
+                            Text(
+                                error ?: catalog?.message ?: "这些接口暂时没有返回点播内容。",
+                                color = palette.muted,
+                                modifier = Modifier.padding(start = 28.dp, top = 12.dp, end = 28.dp),
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(start = 28.dp, top = 12.dp)) {
+                                TvButton("重试", onClick = onRetry)
+                                TvButton("查看站点状态", onClick = onSites)
+                            }
                         }
-                        catalog?.message?.let { note ->
-                            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(start = 28.dp, top = 8.dp))
+                        if (!showEmpty) catalog?.message?.let { note ->
+                            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(start = 28.dp, top = 8.dp, end = 28.dp))
+                            if (catalog.reports.isNotEmpty()) {
+                                TvButton("查看站点状态", modifier = Modifier.padding(start = 28.dp, top = 8.dp), onClick = onSites)
+                            }
                         }
                     }
                 }

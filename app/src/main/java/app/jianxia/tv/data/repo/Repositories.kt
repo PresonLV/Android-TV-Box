@@ -20,8 +20,11 @@ import app.jianxia.core.model.EpgGuide
 import app.jianxia.core.model.LiveChannel
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.ParseDef
+import app.jianxia.core.model.HomeSiteSummary
 import app.jianxia.core.model.SiteKind
+import app.jianxia.core.model.SiteReport
 import app.jianxia.core.model.VodItem
+import app.jianxia.core.model.VodPage
 import app.jianxia.core.model.VodSiteDef
 import app.jianxia.core.parser.DetectedSource
 import app.jianxia.core.parser.M3uParser
@@ -407,6 +410,9 @@ data class ExpandedSources(
     val parses: List<ParseDef>,
     val unsupported: Int,
     val failures: Int,
+    val reports: List<SiteReport> = emptyList(),
+    val spiderCount: Int = 0,
+    val usableCount: Int = 0,
 )
 
 data class HomeCatalog(
@@ -415,6 +421,7 @@ data class HomeCatalog(
     val failed: Int,
     val hasVod: Boolean,
     val message: String?,
+    val reports: List<SiteReport> = emptyList(),
 )
 
 data class SearchCatalog(
@@ -454,17 +461,41 @@ class CatalogRepository(
         val sites = mutableListOf<VodSiteDef>()
         val lives = mutableListOf<ResolvedLive>()
         val parses = mutableListOf<ParseDef>()
+        val reports = mutableListOf<SiteReport>()
         var unsupported = 0
         var failures = 0
+        var spiders = 0
+        var usable = 0
         for (source in enabled) {
             try {
                 when (source.kind) {
                     "tvbox" -> {
                         val document = http.fetchConfig(source.url)
                         val config = TvBoxConfigParser.parse(document.text, document.finalUrl)
+                        if (config.sites.isEmpty()) {
+                            failures += 1
+                            reports += SiteReport(source.id, source.name, source.name, "失败", "配置里没有点播站点")
+                        }
                         config.sites.forEach { site ->
-                            sites += site.copy(key = "${source.id}:${site.key}")
-                            if (site.unsupportedReason != null) unsupported += 1
+                            val stored = site.copy(key = "${source.id}:${site.key}")
+                            sites += stored
+                            val spider = site.unsupportedReason?.contains("爬虫") == true
+                            when {
+                                spider -> {
+                                    unsupported += 1
+                                    spiders += 1
+                                    reports += SiteReport(stored.key, source.name, site.name, "爬虫", site.unsupportedReason ?: "不支持 JAR/JS 爬虫源")
+                                }
+                                site.unsupportedReason != null -> {
+                                    unsupported += 1
+                                    failures += 1
+                                    reports += SiteReport(stored.key, source.name, site.name, "失败", site.unsupportedReason ?: "不支持的站点")
+                                }
+                                else -> {
+                                    usable += 1
+                                    reports += SiteReport(stored.key, source.name, site.name, "可用", "还没有请求列表")
+                                }
+                            }
                         }
                         config.lives.forEach { live ->
                             lives += ResolvedLive(
@@ -479,20 +510,28 @@ class CatalogRepository(
                         }
                         parses += config.parses
                     }
-                    "maccms_json", "maccms_xml" -> sites += VodSiteDef(
-                        key = source.id,
-                        name = source.name,
-                        kind = if (source.kind == "maccms_xml") SiteKind.MACCMS_XML else SiteKind.MACCMS_JSON,
-                        api = source.url,
-                    )
+                    "maccms_json", "maccms_xml" -> {
+                        usable += 1
+                        sites += VodSiteDef(
+                            key = source.id,
+                            name = source.name,
+                            kind = if (source.kind == "maccms_xml") SiteKind.MACCMS_XML else SiteKind.MACCMS_JSON,
+                            api = source.url,
+                        )
+                        reports += SiteReport(source.id, source.name, source.name, "可用", "还没有请求列表")
+                    }
                     "live" -> lives += ResolvedLive(source.id, source.name, source.url, source.epgUrl)
-                    else -> failures += 1
+                    else -> {
+                        failures += 1
+                        reports += SiteReport(source.id, source.name, source.name, "失败", "无法识别这个接口")
+                    }
                 }
-            } catch (_: Exception) {
+            } catch (error: Exception) {
                 failures += 1
+                reports += SiteReport(source.id, source.name, source.name, "失败", UserFacingError.message(error))
             }
         }
-        ExpandedSources(sites, lives, parses, unsupported, failures).also { cached = fingerprint to it }
+        ExpandedSources(sites, lives, parses, unsupported, failures, reports, spiders, usable).also { cached = fingerprint to it }
     }
 
     suspend fun home(settings: AppSettings): HomeCatalog {
@@ -501,24 +540,58 @@ class CatalogRepository(
         val selected = settings.defaultSourceId.takeIf { it.isNotBlank() }?.let { id ->
             vod.filter { it.key == id || it.key.startsWith("$id:") }.ifEmpty { null }
         } ?: vod
+        val reports = expanded.reports.toMutableList()
         if (selected.isEmpty()) {
+            val summary = HomeSiteSummary.message(expanded.sites.size, expanded.usableCount, expanded.spiderCount, expanded.failures)
             return HomeCatalog(
                 rows = emptyMap(),
                 unsupported = expanded.unsupported,
                 failed = expanded.failures,
                 hasVod = false,
-                message = if (expanded.failures > 0) UserFacingError.RETRY else null,
+                message = summary,
+                reports = reports,
             ).also { lastHome = it }
         }
         val timeout = settings.searchTimeoutSec * 1000L
         val first = ParallelAggregator.collect(timeout, selected.map { site ->
-            suspend { listOf(site.key to registry.create(site).list(1, null)) }
+            suspend {
+                val attempt = runCatching { registry.create(site).list(1, null) }
+                listOf(site.key to attempt)
+            }
         })
-        val pages = first.items.toMap()
-        val rows = linkedMapOf(
-            "latest" to mergeVodItems(pages.values.flatMap { it.items }).take(18),
-        )
-        var failed = expanded.failures + first.failureCount + first.timedOutCount
+        val pages = linkedMapOf<String, VodPage>()
+        var listFailed = 0
+        first.items.forEach { (key, attempt) ->
+            val index = reports.indexOfFirst { it.id == key }
+            val page = attempt.getOrNull()
+            val error = attempt.exceptionOrNull()
+            when {
+                page != null && page.items.isNotEmpty() -> {
+                    pages[key] = page
+                    val line = "${page.items.size} 条，${page.classes.size} 个分类"
+                    if (index >= 0) reports[index] = reports[index].copy(status = "可用", detail = line)
+                }
+                page != null -> {
+                    pages[key] = page
+                    if (index >= 0) reports[index] = reports[index].copy(status = "可用", detail = "列表是空的")
+                }
+                else -> {
+                    listFailed += 1
+                    val reason = UserFacingError.message(error ?: IllegalStateException("接口没有返回内容"))
+                    if (index >= 0) reports[index] = reports[index].copy(status = "失败", detail = reason)
+                }
+            }
+        }
+        val returned = first.items.map { it.first }.toSet()
+        selected.filter { it.key !in returned }.forEach { site ->
+            listFailed += 1
+            val index = reports.indexOfFirst { it.id == site.key }
+            if (index >= 0) reports[index] = reports[index].copy(status = "失败", detail = UserFacingError.TIMEOUT)
+        }
+        val latest = mergeVodItems(pages.values.flatMap { it.items }).take(18)
+        val rows = linkedMapOf<String, List<MergedVod>>()
+        if (latest.isNotEmpty()) rows["latest"] = latest
+        var failed = expanded.failures + listFailed
         for (row in listOf("movie", "tv", "variety", "anime", "doc")) {
             val blocks = selected.mapNotNull { site ->
                 val page = pages[site.key] ?: return@mapNotNull null
@@ -533,13 +606,13 @@ class CatalogRepository(
             if (merged.isNotEmpty()) rows[row] = merged
         }
         rows.values.forEach { store.putAll(it) }
+        val summary = HomeSiteSummary.message(expanded.sites.size, expanded.usableCount, expanded.spiderCount, failed)
         val message = when {
-            failed > 0 && rows.values.all { it.isEmpty() } -> "接口没有返回内容"
-            failed > 0 -> "有 $failed 个请求超时或失败"
-            expanded.unsupported > 0 -> "已跳过 ${expanded.unsupported} 个不支持的站点"
+            rows.isEmpty() -> summary
+            failed > 0 || expanded.spiderCount > 0 -> summary
             else -> null
         }
-        return HomeCatalog(rows, expanded.unsupported, failed, true, message).also { lastHome = it }
+        return HomeCatalog(rows, expanded.unsupported, failed, true, message, reports).also { lastHome = it }
     }
 
     suspend fun search(settings: AppSettings, query: String): SearchCatalog {
