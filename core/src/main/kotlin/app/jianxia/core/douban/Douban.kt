@@ -26,8 +26,6 @@ data class DoubanCard(
 
 data class YearChoice(val label: String, val range: String)
 
-data class DoubanChart(val id: String, val label: String)
-
 data class DoubanPerson(val name: String)
 
 data class DoubanDetail(
@@ -130,16 +128,6 @@ object DoubanProxy {
         return "https://movie.douban.com/j/new_search_subjects?$body"
     }
 
-    fun chartUrl(id: String, start: Int, count: Int): String {
-        val safe = id.filter { it.isLetterOrDigit() || it == '_' }
-        return "https://m.douban.com/rexxar/api/v2/subject_collection/$safe/items?start=${start.coerceAtLeast(0)}&count=${count.coerceIn(1, 50)}&for_mobile=1"
-    }
-
-    fun comingUrl(kind: String, start: Int, count: Int): String {
-        val type = if (kind == "tv") "tv" else "movie"
-        return "https://m.douban.com/rexxar/api/v2/$type/coming_soon?start=${start.coerceAtLeast(0)}&count=${count.coerceIn(1, 50)}"
-    }
-
     fun dataUrl(mode: String, custom: String, target: String): String = when (mode) {
         CUSTOM -> prefix(custom, target)
         else -> target
@@ -218,16 +206,6 @@ object DoubanFilter {
         "加拿大" to "加拿大",
         "澳大利亚" to "澳大利亚",
     )
-    val charts = listOf(
-        DoubanChart("movie_real_time_hotest", "实时热门电影"),
-        DoubanChart("movie_weekly_best", "一周口碑电影"),
-        DoubanChart("movie_top250", "电影 Top250"),
-        DoubanChart("tv_real_time_hotest", "实时热门电视"),
-        DoubanChart("tv_chinese_best_weekly", "华语口碑剧集"),
-        DoubanChart("tv_global_best_weekly", "全球口碑剧集"),
-        DoubanChart("show_chinese_best_weekly", "国内口碑综艺"),
-    )
-    val soonKinds = listOf("movie" to "电影", "tv" to "电视剧")
 
     fun featured(kind: String): List<String> = when (kind) {
         "movie" -> listOf("高票房", "豆瓣高分", "奥斯卡", "金像奖", "金鸡奖", "漫威", "迪士尼")

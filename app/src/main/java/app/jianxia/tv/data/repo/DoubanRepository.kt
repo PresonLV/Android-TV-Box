@@ -42,18 +42,6 @@ class DoubanRepository(private val http: NetClient, cacheDir: File) {
         return DoubanParse.cards(body).map { paint(settings, it) }
     }
 
-    suspend fun chart(settings: AppSettings, id: String, start: Int): List<DoubanCard> {
-        if (!settings.doubanEnabled || id.isBlank()) return emptyList()
-        val body = read(settings, DoubanProxy.chartUrl(id, start, 20), BROWSE_TTL) ?: return emptyList()
-        return DoubanParse.cards(body).map { paint(settings, it) }
-    }
-
-    suspend fun coming(settings: AppSettings, kind: String, start: Int): List<DoubanCard> {
-        if (!settings.doubanEnabled) return emptyList()
-        val body = read(settings, DoubanProxy.comingUrl(kind, start, 20), BROWSE_TTL) ?: return emptyList()
-        return DoubanParse.cards(body).map { paint(settings, it) }
-    }
-
     suspend fun match(settings: AppSettings, title: String, year: String?): DoubanDetail? {
         if (!settings.doubanEnabled || title.isBlank()) return null
         val suggest = read(settings, DoubanProxy.suggestUrl(title), MATCH_TTL) ?: return null

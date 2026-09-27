@@ -118,8 +118,6 @@ class EnhanceTest {
         assertTrue(combined.contains("sort=R"))
         assertTrue(combined.contains("tags="))
         assertFalse(combined.contains("genres="))
-        assertTrue(DoubanProxy.chartUrl("movie_top250", 0, 20).contains("/subject_collection/movie_top250/items"))
-        assertTrue(DoubanProxy.comingUrl("tv", 0, 20).contains("/tv/coming_soon"))
         val searched = DoubanParse.cards(
             """{"data":[{"id":"36090457","title":"头脑特工队2","rate":"8.4","cover":"https://img3.doubanio.com/a.jpg","casts":["玛雅·霍克","艾米·波勒"],"directors":["凯尔西·曼"]}]}""",
         )

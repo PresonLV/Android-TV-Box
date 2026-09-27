@@ -83,15 +83,12 @@ fun DoubanScreen(
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val siteMode = !siteKey.isNullOrBlank()
-    var mode by remember(siteKey) { mutableStateOf("filter") }
-    var kind by remember(siteKey) { mutableStateOf("movie") }
+    val kind = "movie"
     var featured by remember(siteKey) { mutableStateOf("") }
     var year by remember(siteKey) { mutableStateOf("") }
     var area by remember(siteKey) { mutableStateOf("") }
     var genre by remember(siteKey) { mutableStateOf("") }
     var sort by remember(siteKey) { mutableStateOf("U") }
-    var chartId by remember(siteKey) { mutableStateOf(DoubanFilter.charts.first().id) }
-    var soonKind by remember(siteKey) { mutableStateOf("movie") }
     var typeId by remember(siteKey) { mutableStateOf("") }
     var picked by remember(siteKey) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var classes by remember(siteKey) { mutableStateOf<List<VodClass>>(emptyList()) }
@@ -118,11 +115,7 @@ fun DoubanScreen(
     val signature = if (siteMode) {
         "site|$siteKey|$typeId|${picked.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" }}|${settings.searchTimeoutSec}"
     } else {
-        when (mode) {
-            "chart" -> "chart|$chartId|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
-            "soon" -> "soon|$soonKind|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
-            else -> "filter|$kind|$featured|$year|$area|$genre|$sort|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
-        }
+        "filter|$featured|$year|$area|$genre|$sort|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
     }
     var debounced by remember(siteKey) { mutableStateOf(signature) }
     LaunchedEffect(signature) {
@@ -159,11 +152,7 @@ fun DoubanScreen(
             emptyList()
         } else {
             val cards = runCatching {
-                when (mode) {
-                    "chart" -> app.douban.chart(settings, chartId, start)
-                    "soon" -> app.douban.coming(settings, soonKind, start)
-                    else -> app.douban.filter(settings, kind, featured, year, area, genre, sort, start)
-                }
+                app.douban.filter(settings, kind, featured, year, area, genre, sort, start)
             }.getOrDefault(emptyList())
             hasMore = cards.size >= 20
             note = when {
@@ -183,9 +172,7 @@ fun DoubanScreen(
             expandFocus = false
         }
     }
-    BackHandler {
-        if (!siteMode && mode != "filter") mode = "filter" else onBack()
-    }
+    BackHandler(onBack = onBack)
     val summary = if (siteMode) {
         val bits = mutableListOf(siteName.ifBlank { "站点" })
         classes.firstOrNull { it.id == typeId }?.name?.let { bits += it }
@@ -193,11 +180,8 @@ fun DoubanScreen(
             group.choices.firstOrNull { it.value == picked[group.key] }?.name?.let { bits += it }
         }
         bits.joinToString(" · ")
-    } else when (mode) {
-        "chart" -> DoubanFilter.charts.firstOrNull { it.id == chartId }?.label.orEmpty()
-        "soon" -> "新片预告 · ${if (soonKind == "tv") "电视剧" else "电影"}"
-        else -> listOfNotNull(
-            DoubanFilter.kinds.firstOrNull { it.first == kind }?.second,
+    } else {
+        listOfNotNull(
             featured.takeIf { it.isNotBlank() },
             years.firstOrNull { it.range == year }?.label,
             DoubanFilter.areas.firstOrNull { it.second == area }?.first,
@@ -206,13 +190,7 @@ fun DoubanScreen(
         ).joinToString(" · ")
     }
     Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        if (!siteMode) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SelectChip("风云榜", mode == "chart") { mode = "chart"; collapsed = false }
-                SelectChip("新片预告", mode == "soon") { mode = "soon"; collapsed = false }
-            }
-            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
-        } else {
+        if (siteMode) {
             Text(siteName.ifBlank { "站点筛选" }, color = palette.text, fontSize = 22.sp)
             Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
         }
@@ -245,35 +223,12 @@ fun DoubanScreen(
                     },
                 )
             }
-        } else when (mode) {
-            "chart" -> ChipRow(
-                label = "榜单",
-                options = DoubanFilter.charts.map { it.id to it.label },
-                selected = chartId,
-                restore = true,
-                requester = lastRow,
-                onSelect = { chartId = it },
-            )
-            "soon" -> ChipRow(
-                label = "类型",
-                options = DoubanFilter.soonKinds,
-                selected = soonKind,
-                restore = true,
-                requester = lastRow,
-                onSelect = { soonKind = it },
-            )
-            else -> {
-                ChipRow("分类", DoubanFilter.kinds, kind, restore = true, onSelect = {
-                    kind = it
-                    if (featured !in DoubanFilter.featured(it)) featured = ""
-                    if (genre !in DoubanFilter.genres(it)) genre = ""
-                })
-                ChipRow("精选标签", listOf("" to "全部") + featuredTags.map { it to it }, featured, restore = true, onSelect = { featured = it })
-                ChipRow("年代", listOf("" to "全部") + years.map { it.range to it.label }, year, restore = true, onSelect = { year = it })
-                ChipRow("地区", listOf("" to "全部") + DoubanFilter.areas.map { it.second to it.first }, area, restore = true, onSelect = { area = it })
-                ChipRow("类型", listOf("" to "全部") + genreTags.map { it to it }, genre, restore = true, onSelect = { genre = it })
-                ChipRow("排序", DoubanFilter.sorts, sort, restore = true, requester = lastRow, onSelect = { sort = it })
-            }
+        } else {
+            ChipRow("精选标签", listOf("" to "全部") + featuredTags.map { it to it }, featured, restore = true, onSelect = { featured = it })
+            ChipRow("年代", listOf("" to "全部") + years.map { it.range to it.label }, year, restore = true, onSelect = { year = it })
+            ChipRow("地区", listOf("" to "全部") + DoubanFilter.areas.map { it.second to it.first }, area, restore = true, onSelect = { area = it })
+            ChipRow("类型", listOf("" to "全部") + genreTags.map { it to it }, genre, restore = true, onSelect = { genre = it })
+            ChipRow("排序", DoubanFilter.sorts, sort, restore = true, requester = lastRow, onSelect = { sort = it })
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (loading && items.isEmpty()) {
