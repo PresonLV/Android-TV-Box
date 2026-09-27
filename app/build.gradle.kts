@@ -13,8 +13,8 @@ android {
         applicationId = "app.jianxia.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-beta"
+        versionCode = 2
+        versionName = "0.1.1-beta"
         vectorDrawables.useSupportLibrary = true
     }
 
@@ -23,7 +23,7 @@ android {
             isEnable = true
             reset()
             include("armeabi-v7a", "arm64-v8a")
-            isUniversalApk = false
+            isUniversalApk = true
         }
     }
 
@@ -100,6 +100,7 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("io.coil-kt:coil-compose:2.7.0")

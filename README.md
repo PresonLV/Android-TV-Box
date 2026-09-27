@@ -6,12 +6,14 @@
 
 ## 下载
 
-GitHub Release 里有两个安装包，按电视的 CPU 选一个即可，不必两个都装：
+优先安装 **`jianxia-universal.apk`**。很多盒子是 64 位芯片、32 位系统，只含 arm64 的安装包会装不上；通用包里同时有 32 位和 64 位库，系统会自己选。
 
-- `jianxia-arm64-v8a.apk`：近几年的电视、盒子和手机
-- `jianxia-armeabi-v7a.apk`：更早的 32 位盒子
+另外两个是按架构拆开的，只有在你确定系统位数、又想少占一点空间时再用：
 
-最低系统为 Android 5.0（API 21）。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.1.0-beta`）是预发布版本。
+- `jianxia-armeabi-v7a.apk`：32 位系统
+- `jianxia-arm64-v8a.apk`：64 位系统
+
+最低系统为 Android 5.0（API 21），这是当前这套界面和播放器能支持的最低版本。安装包是 release 混淆后的体积，用调试证书签名，证书不会提交到仓库。带连字符的版本（例如 `v0.1.1-beta`）是预发布版本。
 
 ## 安装
 
@@ -32,7 +34,7 @@ GitHub Release 里有两个安装包，按电视的 CPU 选一个即可，不必
 
 ```bash
 adb connect 电视IP:5555
-adb install -r jianxia-arm64-v8a.apk
+adb install -r jianxia-universal.apk
 adb shell am start -n app.jianxia.tv/.MainActivity
 ```
 
@@ -40,17 +42,17 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 
 ## 添加接口
 
-简匣启动后是空的。进入 **设置 → 接口与直播源**。
+简匣启动后是空的。首页没有接口时，右侧就是 **手机扫码添加**。手机和电视要在同一个局域网。页面打开后粘贴地址即可，口令显示在电视上。
 
-- 在电视上直接输入地址。遥控器选字母比较慢，适合短地址。
-- 用手机扫描旁边的二维码。手机和电视要在同一个局域网。页面会要求填写电视上显示的四位口令，然后粘贴地址。
-- 同一个手机页面也可以导入、导出全部设置和接口。
+电视上的「在电视上添加」使用应用内的屏幕键盘，可以用遥控器输入网址，也有 `http://`、`.com`、`.json` 这类快捷键。如果还是想用系统输入法，对话框里可以切换「使用系统键盘」。
+
+手机页面的「导入 / 导出」如果每行粘贴一个网址，会按添加接口处理，不会当成备份覆盖。备份仍然是一份 JSON。
 
 支持的地址：
 
 | 类型 | 说明 |
 | --- | --- |
-| TVBox JSON | 常见的 `sites` / `lives` / `parses` 配置 |
+| TVBox JSON | 常见的 `sites` / `lives` / `parses` 配置。正文可以是普通 JSON、Base64、藏在图片里的 Base64，或 `2423` 开头的密文；`//` 注释、尾逗号和 `./` 相对地址也会处理 |
 | 苹果 CMS JSON | TVBox 站点 `type` 为 `1`，或直接填 MacCMS 的 `provide/vod` 接口 |
 | 苹果 CMS XML | TVBox 站点 `type` 为 `0`，或直接填 XML 接口 |
 | M3U / M3U8 直播列表 | `#EXTM3U` 频道列表，不是单条切片播放列表 |
@@ -94,13 +96,13 @@ adb shell am start -n app.jianxia.tv/.MainActivity
 ./gradlew :core:test :app:assembleDebug
 ```
 
-需要 JDK 17 或更高版本，以及 Android SDK 35。发布用的安装包在 `app/build/outputs/apk/release/`，按 `armeabi-v7a` 和 `arm64-v8a` 分开。推送 `v*` 标签时，GitHub Actions 会把这两个 APK 挂到对应的 Release 上。
+需要 JDK 17 或更高版本，以及 Android SDK 35。发布用的安装包在 `app/build/outputs/apk/release/`，包含通用包以及 `armeabi-v7a`、`arm64-v8a` 两个拆分包。推送 `v*` 标签时，GitHub Actions 会把这三个 APK 挂到对应的 Release 上。
 
-`core` 模块是纯 Kotlin，单元测试覆盖 TVBox JSON、苹果 CMS JSON/XML、M3U、TXT、结果合并和线路排序。测试夹具使用虚构片名和 `example.test`，不是可用片源。
+`core` 模块是纯 Kotlin，单元测试覆盖 TVBox JSON、配置解码、苹果 CMS JSON/XML、M3U、TXT、结果合并和线路排序。测试夹具使用虚构片名和 `example.test`，不是可用片源。
 
 `tools/mock-cms/server.py` 是另一个本地演示桩，用来在模拟器里看界面。它监听 `8090` 端口，同样只提供虚构内容，不会被打进安装包。模拟器里的地址一般是 `http://10.0.2.2:8090/tvbox.json`。
 
-GitHub Actions 工作流 `.github/workflows/build.yml` 会运行单元测试、打出 debug APK，并上传为构建产物。
+GitHub Actions 工作流 `.github/workflows/build.yml` 会运行单元测试、打出 release APK，并上传为构建产物。打上 `v*` 标签后，同一工作流会把安装包挂到 GitHub Release。
 
 ## 许可
 

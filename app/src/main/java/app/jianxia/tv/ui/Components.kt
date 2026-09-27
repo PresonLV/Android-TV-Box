@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -265,3 +267,35 @@ fun FocusOutline(focused: Boolean, modifier: Modifier = Modifier, content: @Comp
 }
 
 val ScreenPadding = PaddingValues(start = 28.dp, end = 36.dp, top = 22.dp, bottom = 22.dp)
+
+@Composable
+fun PhoneQrCard(onRefreshPin: (() -> Unit)? = null, modifier: Modifier = Modifier) {
+    val app = LocalApp.current
+    val palette = LocalPalette.current
+    val lan by app.lan.status.collectAsStateWithLifecycle()
+    val pageUrl = if (lan.running && !lan.host.isNullOrBlank()) {
+        "http://${lan.host}:${lan.port}/?pin=${lan.pin}"
+    } else {
+        null
+    }
+    Panel(modifier.width(300.dp)) {
+        Text("手机扫码添加", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+        Text(
+            "这是添加接口的主要方式。手机和电视连同一个网络，扫码后粘贴地址。",
+            color = palette.muted,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+        )
+        if (pageUrl != null) {
+            QrImage(pageUrl, Modifier.width(220.dp).height(220.dp))
+            Text(pageUrl, color = palette.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+            Text("口令 ${lan.pin}", color = palette.accent, modifier = Modifier.padding(top = 6.dp))
+        } else {
+            Text(lan.error ?: "正在启动局域网页面…", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
+        }
+        if (onRefreshPin != null) {
+            TvButton("刷新口令", modifier = Modifier.padding(top = 12.dp), onClick = onRefreshPin)
+        }
+    }
+}

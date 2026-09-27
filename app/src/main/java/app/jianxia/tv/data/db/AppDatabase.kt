@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "sources")
@@ -23,6 +25,7 @@ data class SourceEntity(
     val enabled: Boolean,
     val sortOrder: Int,
     val addedAt: Long,
+    val note: String = "",
 )
 
 @Entity(tableName = "history", indices = [Index(value = ["updatedAt"])])
@@ -142,7 +145,7 @@ interface LibraryDao {
         SkipEntity::class,
         LineChoiceEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -150,8 +153,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun library(): LibraryDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sources ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun create(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "jianxia.db")
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
     }

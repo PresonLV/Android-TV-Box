@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,13 +30,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
+import app.jianxia.core.UserFacingError
 import app.jianxia.core.model.MergedVod
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.repo.HomeCatalog
-import app.jianxia.tv.ui.EmptyHint
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
+import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.PosterCard
 import app.jianxia.tv.ui.ScreenPadding
 import app.jianxia.tv.ui.SectionTitle
@@ -61,7 +64,7 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
             _state.update { it.copy(loading = it.catalog == null, error = null) }
             runCatching { app.catalog.home(app.settings.state.value) }
                 .onSuccess { catalog -> _state.value = HomeState(loading = false, catalog = catalog) }
-                .onFailure { error -> _state.update { it.copy(loading = false, error = error.message ?: "加载失败") } }
+                .onFailure { error -> _state.update { it.copy(loading = false, error = UserFacingError.message(error)) } }
         }
     }
 }
@@ -78,7 +81,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}" }
+    val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}:${it.kind}:${it.note}" }
     LaunchedEffect(fingerprint, settings.defaultSourceId, settings.searchTimeoutSec) { vm.load() }
     val (posterW, posterH) = posterSize(settings.posterSize)
     Box(Modifier.fillMaxSize()) {
@@ -89,12 +92,23 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
             Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
         }
         when {
-            sources.none { it.enabled } -> EmptyHint(
-                title = "还没有接口",
-                body = "简匣不内置任何片源。请到设置里添加你自己的接口地址，也可以用手机扫描二维码粘贴。",
-                action = "去添加接口",
-                onAction = onSettings,
-            )
+            sources.none { it.enabled } -> Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 28.dp),
+                horizontalArrangement = Arrangement.spacedBy(28.dp),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("还没有接口", color = palette.text, fontSize = 32.sp)
+                    Text(
+                        "简匣不内置任何片源。推荐用手机扫描右侧二维码添加，这是最省事的办法。也可以用电视上的屏幕键盘输入网址。",
+                        color = palette.muted,
+                        fontSize = 16.sp,
+                        lineHeight = 24.sp,
+                        modifier = Modifier.padding(top = 12.dp, bottom = 22.dp),
+                    )
+                    TvButton("在电视上添加", primary = true, onClick = onSettings)
+                }
+                PhoneQrCard()
+            }
             state.loading && state.catalog == null -> CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(top = 32.dp))
             else -> {
                 settings.homeRows.filter { it.visible }.forEach { row ->

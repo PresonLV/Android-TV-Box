@@ -1,8 +1,10 @@
 package app.jianxia.tv.data.repo
 
 import android.content.Context
+import app.jianxia.core.UserFacingError
 import app.jianxia.core.aggregate.ParallelAggregator
 import app.jianxia.core.backup.BackupCodec
+import app.jianxia.core.backup.UrlList
 import app.jianxia.core.backup.withRecentSearch
 import app.jianxia.core.merge.CategoryMatcher
 import app.jianxia.core.merge.mergeVodItems
@@ -85,38 +87,71 @@ class SourceRepository(private val dao: SourceDao, private val http: NetClient) 
     suspend fun add(url: String, name: String?, epg: String?): SourceChange = withContext(Dispatchers.IO) {
         val trimmed = url.trim()
         requireHttp(trimmed)
-        val text = http.textBlocking(trimmed)
-        val detected = SourceDetector.detect(text, trimmed)
-        val kind = kindOf(detected)
-        val entity = SourceEntity(
+        val placeholder = SourceEntity(
             id = UUID.randomUUID().toString(),
-            name = name?.trim().takeUnless { it.isNullOrEmpty() } ?: detected.suggestedName(),
+            name = name?.trim().takeUnless { it.isNullOrEmpty() } ?: hostOf(trimmed),
             url = trimmed,
-            kind = kind,
+            kind = "failed",
             epgUrl = epg?.trim()?.ifBlank { null },
             enabled = true,
             sortOrder = dao.maxOrder() + 1,
             addedAt = System.currentTimeMillis(),
+            note = UserFacingError.RETRY,
         )
-        dao.upsert(entity)
-        SourceChange(entity, summaryOf(detected, text))
+        dao.upsert(placeholder)
+        finish(placeholder, name)
     }
 
     suspend fun update(id: String, name: String, url: String, epg: String?) = withContext(Dispatchers.IO) {
         val current = dao.list().firstOrNull { it.id == id } ?: error("找不到这个接口")
         val trimmed = url.trim()
         requireHttp(trimmed)
-        val text = http.textBlocking(trimmed)
-        val detected = SourceDetector.detect(text, trimmed)
-        dao.upsert(
-            current.copy(
-                name = name.trim().ifBlank { detected.suggestedName() },
-                url = trimmed,
-                kind = kindOf(detected),
-                epgUrl = epg?.trim()?.ifBlank { null },
-            ),
+        val placeholder = current.copy(
+            name = name.trim().ifBlank { current.name },
+            url = trimmed,
+            kind = "failed",
+            epgUrl = epg?.trim()?.ifBlank { null },
+            note = UserFacingError.RETRY,
         )
-        summaryOf(detected, text)
+        dao.upsert(placeholder)
+        finish(placeholder, name).summary
+    }
+
+    suspend fun recheck(id: String): String = withContext(Dispatchers.IO) {
+        val current = dao.list().firstOrNull { it.id == id } ?: error("找不到这个接口")
+        finish(current, current.name).summary
+    }
+
+    private suspend fun finish(entity: SourceEntity, name: String?): SourceChange {
+        val fetched = runCatching { http.fetchConfig(entity.url) }
+        if (fetched.isFailure) {
+            val reason = UserFacingError.message(fetched.exceptionOrNull() ?: IllegalStateException(UserFacingError.RETRY))
+            val saved = entity.copy(
+                name = name?.trim().takeUnless { it.isNullOrEmpty() } ?: entity.name.ifBlank { hostOf(entity.url) },
+                kind = "failed",
+                note = UserFacingError.RETRY,
+            )
+            dao.upsert(saved)
+            return SourceChange(saved, "${UserFacingError.RETRY}：$reason")
+        }
+        val document = fetched.getOrThrow()
+        val detected = SourceDetector.detect(document.text, document.finalUrl)
+        if (detected is DetectedSource.Unknown) {
+            val saved = entity.copy(
+                name = name?.trim().takeUnless { it.isNullOrEmpty() } ?: hostOf(entity.url),
+                kind = "failed",
+                note = UserFacingError.RETRY,
+            )
+            dao.upsert(saved)
+            return SourceChange(saved, "${UserFacingError.RETRY}：${detected.reason}")
+        }
+        val saved = entity.copy(
+            name = name?.trim().takeUnless { it.isNullOrEmpty() } ?: detected.suggestedName(),
+            kind = kindOf(detected),
+            note = "",
+        )
+        dao.upsert(saved)
+        return SourceChange(saved, summaryOf(detected, document.text, document.finalUrl))
     }
 
     suspend fun delete(id: String) = dao.delete(id)
@@ -161,17 +196,20 @@ class SourceRepository(private val dao: SourceDao, private val http: NetClient) 
         }
     }
 
+    private fun hostOf(url: String): String =
+        url.substringAfter("://").substringBefore("/").substringBefore(":").ifBlank { "未命名" }
+
     private fun kindOf(detected: DetectedSource): String = when (detected) {
         is DetectedSource.TvBox -> "tvbox"
         is DetectedSource.MacCmsJson -> "maccms_json"
         is DetectedSource.MacCmsXml -> "maccms_xml"
         is DetectedSource.Live -> "live"
-        is DetectedSource.Unknown -> throw IllegalArgumentException(detected.reason)
+        is DetectedSource.Unknown -> "failed"
     }
 
-    private fun summaryOf(detected: DetectedSource, text: String): String = when (detected) {
+    private fun summaryOf(detected: DetectedSource, text: String, baseUrl: String): String = when (detected) {
         is DetectedSource.TvBox -> {
-            val config = runCatching { TvBoxConfigParser.parse(text) }.getOrNull()
+            val config = runCatching { TvBoxConfigParser.parse(text, baseUrl) }.getOrNull()
             if (config == null) {
                 "已添加 TVBox 配置"
             } else {
@@ -340,7 +378,8 @@ class CatalogRepository(
             try {
                 when (source.kind) {
                     "tvbox" -> {
-                        val config = TvBoxConfigParser.parse(http.textBlocking(source.url))
+                        val document = http.fetchConfig(source.url)
+                        val config = TvBoxConfigParser.parse(document.text, document.finalUrl)
                         config.sites.forEach { site ->
                             sites += site.copy(key = "${source.id}:${site.key}")
                             if (site.unsupportedReason != null) unsupported += 1
@@ -378,7 +417,7 @@ class CatalogRepository(
                 unsupported = expanded.unsupported,
                 failed = expanded.failures,
                 hasVod = false,
-                message = if (expanded.failures > 0) "接口没有响应" else null,
+                message = if (expanded.failures > 0) UserFacingError.RETRY else null,
             ).also { lastHome = it }
         }
         val timeout = settings.searchTimeoutSec * 1000L
@@ -496,11 +535,26 @@ class BackupRepository(
         return BackupCodec.encode(bundle)
     }
 
-    suspend fun import(raw: String): Int {
-        val bundle = BackupCodec.decode(raw)
+    suspend fun import(raw: String): String {
+        val urls = UrlList.extract(raw)
+        if (urls != null) {
+            val notes = urls.map { url ->
+                runCatching { sources.add(url, null, null).summary }.getOrElse { UserFacingError.message(it) }
+            }
+            return "已按网址添加 ${urls.size} 个，没有覆盖现有配置。${notes.joinToString("；")}"
+        }
+        val trimmed = raw.trim().removePrefix("\uFEFF")
+        if (!trimmed.startsWith("{")) {
+            throw IllegalArgumentException(UserFacingError.NOT_BACKUP)
+        }
+        val bundle = try {
+            BackupCodec.decode(trimmed)
+        } catch (error: Exception) {
+            throw IllegalArgumentException(UserFacingError.message(error))
+        }
         settings.write(bundle.settings)
         sources.replaceAll(bundle.sources)
-        return bundle.sources.size
+        return "已导入并覆盖，共 ${bundle.sources.size} 个接口"
     }
 
     suspend fun rememberSearch(query: String) {

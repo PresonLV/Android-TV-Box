@@ -51,6 +51,7 @@ fun kindLabel(kind: String): String = when (kind) {
     "maccms_json" -> "苹果 CMS JSON"
     "maccms_xml" -> "苹果 CMS XML"
     "live" -> "直播"
+    "failed" -> "加载失败，可重试"
     else -> "未知格式"
 }
 

@@ -13,8 +13,8 @@ import kotlinx.serialization.json.intOrNull
 object TvBoxConfigParser {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun parse(raw: String): TvBoxConfig {
-        val root = json.parseToJsonElement(extractJsonPayload(raw)) as? JsonObject
+    fun parse(raw: String, baseUrl: String? = null): TvBoxConfig {
+        val root = json.parseToJsonElement(extractJsonPayload(ConfigDecoder.normalize(raw))) as? JsonObject
             ?: throw IllegalArgumentException("不是 TVBox JSON 配置")
         val sitesElement = root["sites"] as? JsonArray
         val livesElement = root["lives"] as? JsonArray
@@ -75,8 +75,23 @@ object TvBoxConfigParser {
             lives = lives,
             parses = parses,
             wallpaper = root.text("wallpaper"),
-        )
+        ).resolve(baseUrl)
     }
+}
+
+private fun TvBoxConfig.resolve(baseUrl: String?): TvBoxConfig {
+    if (baseUrl.isNullOrBlank()) return this
+    return copy(
+        sites = sites.map { site -> site.copy(api = resolveAgainst(baseUrl, site.api)) },
+        lives = lives.map { live ->
+            live.copy(
+                url = resolveAgainst(baseUrl, live.url),
+                epgUrl = live.epgUrl?.let { resolveAgainst(baseUrl, it) },
+            )
+        },
+        parses = parses.map { parse -> parse.copy(url = resolveAgainst(baseUrl, parse.url)) },
+        wallpaper = wallpaper?.let { resolveAgainst(baseUrl, it) },
+    )
 }
 
 private fun JsonObject.flag(key: String, default: Boolean): Boolean {

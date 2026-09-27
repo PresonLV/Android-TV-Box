@@ -16,7 +16,7 @@ object SourceDetector {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     fun detect(raw: String, url: String = ""): DetectedSource {
-        val text = cleanDocument(raw)
+        val text = ConfigDecoder.normalize(raw)
         if (text.isEmpty()) {
             return DetectedSource.Unknown("内容是空的")
         }

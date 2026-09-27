@@ -15,5 +15,6 @@
 }
 
 -dontwarn okhttp3.**
+-keep class okhttp3.dnsoverhttps.** { *; }
 -dontwarn org.jsoup.**
 -dontwarn kotlinx.serialization.**

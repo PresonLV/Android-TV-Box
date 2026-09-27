@@ -3,16 +3,19 @@ package app.jianxia.tv.ui.settings
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,15 +28,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.jianxia.core.UserFacingError
 import app.jianxia.tv.data.db.SourceEntity
 import app.jianxia.tv.ui.Keycap
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.Panel
-import app.jianxia.tv.ui.QrImage
+import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.ScreenPadding
 import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
@@ -51,11 +57,11 @@ private val accents = listOf(
 private val gradients = listOf("ink" to "墨", "dusk" to "暮", "ocean" to "海", "forest" to "林", "ember" to "焰")
 
 @Composable
-fun SettingsScreen() {
-    var section by remember { mutableStateOf("root") }
+fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
+    var section by remember { mutableStateOf(start) }
     BackHandler(enabled = section != "root") { section = "root" }
     when (section) {
-        "sources" -> SourcesPage(onBack = { section = "root" })
+        "sources" -> SourcesPage(openCreate = openCreate, onBack = { section = "root" })
         "look" -> LookPage()
         "home" -> HomeLayoutPage()
         "play" -> PlayPage()
@@ -85,32 +91,41 @@ private fun SettingsRoot(onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun SourcesPage(onBack: () -> Unit) {
+private fun SourcesPage(onBack: () -> Unit, openCreate: Boolean = false) {
     val app = LocalApp.current
     val palette = LocalPalette.current
     val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
-    val lan by app.lan.status.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<SourceEntity?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    val pageUrl = if (lan.running && !lan.host.isNullOrBlank()) "http://${lan.host}:${lan.port}/?pin=${lan.pin}" else null
+    var creating by remember { mutableStateOf(openCreate) }
     Box(Modifier.fillMaxSize()) {
     Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("接口与直播源", color = palette.text, fontSize = 26.sp)
-            Text(message ?: "电视上打字比较累，推荐用手机扫右侧二维码粘贴地址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+            Text(message ?: "推荐先用右侧二维码，在手机上粘贴地址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
             TvButton("在电视上添加", primary = true) { creating = true }
             sources.forEach { source ->
                 Panel(Modifier.padding(top = 12.dp)) {
                     Text(source.name, color = palette.text, fontSize = 18.sp)
-                    Text("${kindLabel(source.kind)}  ·  ${if (source.enabled) "启用" else "停用"}", color = palette.accent, modifier = Modifier.padding(top = 4.dp))
-                    Text(source.url, color = palette.muted, modifier = Modifier.padding(top = 4.dp))
+                    Text(
+                        "${source.note.ifBlank { kindLabel(source.kind) }}  ·  ${if (source.enabled) "启用" else "停用"}",
+                        color = palette.accent,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Text(source.url, color = palette.muted, modifier = Modifier.padding(top = 4.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
                         TvButton("上移") { scope.launch { app.sources.move(source.id, true) } }
                         TvButton("下移") { scope.launch { app.sources.move(source.id, false) } }
                         TvButton(if (source.enabled) "停用" else "启用") {
                             scope.launch { app.sources.setEnabled(source.id, !source.enabled) }
+                        }
+                        if (source.kind == "failed" || source.note.isNotBlank()) {
+                            TvButton("重试") {
+                                scope.launch {
+                                    message = runCatching { app.sources.recheck(source.id) }.getOrElse { UserFacingError.message(it) }
+                                }
+                            }
                         }
                         TvButton("编辑") { editing = source }
                         TvButton("删除") { scope.launch { app.sources.delete(source.id) } }
@@ -119,17 +134,7 @@ private fun SourcesPage(onBack: () -> Unit) {
             }
             TvButton("返回", modifier = Modifier.padding(top = 16.dp), onClick = onBack)
         }
-        Column(Modifier.padding(start = 24.dp).width(280.dp)) {
-            Text("手机添加", color = palette.text, fontSize = 18.sp)
-            if (pageUrl != null) {
-                QrImage(pageUrl, Modifier.padding(top = 12.dp).width(220.dp).height(220.dp))
-                Text(pageUrl, color = palette.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-                Text("口令 ${lan.pin}", color = palette.accent, modifier = Modifier.padding(top = 6.dp))
-            } else {
-                Text(lan.error ?: "正在启动局域网页面…", color = palette.muted, modifier = Modifier.padding(top = 12.dp))
-            }
-            TvButton("刷新口令", modifier = Modifier.padding(top = 12.dp), onClick = app.lan::refreshPin)
-        }
+        PhoneQrCard(onRefreshPin = app.lan::refreshPin, modifier = Modifier.padding(start = 24.dp))
     }
     if (creating || editing != null) {
         SourceDialog(
@@ -141,7 +146,7 @@ private fun SourcesPage(onBack: () -> Unit) {
                         if (editing == null) app.sources.add(url, name, epg).summary
                         else app.sources.update(editing!!.id, name, url, epg)
                     }
-                    message = result.getOrElse { it.message ?: "没有保存" }
+                    message = result.getOrElse { UserFacingError.message(it) }
                     if (result.isSuccess) {
                         creating = false
                         editing = null
@@ -161,65 +166,94 @@ private fun SourceDialog(initial: SourceEntity?, onDismiss: () -> Unit, onSave: 
     var url by remember { mutableStateOf(initial?.url.orEmpty()) }
     var epg by remember { mutableStateOf(initial?.epgUrl.orEmpty()) }
     var target by remember { mutableStateOf("url") }
+    var uppercase by remember { mutableStateOf(false) }
+    var systemIme by remember { mutableStateOf(false) }
+    val clipboard = readClipboard(context)
+    fun valueOf(which: String) = when (which) {
+        "name" -> name
+        "epg" -> epg
+        else -> url
+    }
+    fun write(which: String, value: String) {
+        when (which) {
+            "name" -> name = value
+            "epg" -> epg = value
+            else -> url = value
+        }
+    }
     BackHandler(onBack = onDismiss)
-    Column(Modifier.fillMaxSize().padding(36.dp).verticalScroll(rememberScrollState())) {
-        Text(if (initial == null) "添加接口" else "编辑接口", color = palette.text, fontSize = 26.sp)
-        Text("当前输入：${if (target == "url") "地址" else if (target == "epg") "节目单" else "名称"}", color = palette.muted, modifier = Modifier.padding(top = 8.dp))
-        Field("名称", name) { target = "name" }
-        Field("地址", url) { target = "url" }
-        Field("节目单", epg) { target = "epg" }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            listOf("https://", "http://", "/", ".", "?", "&", "=").forEach { token ->
-                TvButton(token) {
-                    when (target) {
-                        "name" -> name += token
-                        "epg" -> epg += token
-                        else -> url += token
+    Row(Modifier.fillMaxSize().background(palette.bg).padding(28.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Text(if (initial == null) "添加接口" else "编辑接口", color = palette.text, fontSize = 26.sp)
+            Text(
+                "当前输入：${if (target == "url") "地址" else if (target == "epg") "节目单" else "名称"}。遥控器选下面的按键，不必用电视自带输入法。",
+                color = palette.muted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Field("名称", name, target == "name") { target = "name" }
+            Field("地址", url, target == "url") { target = "url" }
+            Field("节目单", epg, target == "epg") { target = "epg" }
+            if (systemIme) {
+                Text("系统键盘", color = palette.muted, modifier = Modifier.padding(top = 12.dp))
+                BasicTextField(
+                    value = valueOf(target),
+                    onValueChange = { write(target, it) },
+                    textStyle = TextStyle(color = palette.text, fontSize = 18.sp),
+                    cursorBrush = SolidColor(palette.accent),
+                    keyboardOptions = KeyboardOptions(keyboardType = if (target == "name") KeyboardType.Text else KeyboardType.Uri),
+                    modifier = Modifier.padding(top = 8.dp).fillMaxWidth().height(48.dp),
+                )
+            } else {
+                listOf(
+                    listOf("http://", "https://", "www."),
+                    listOf(".com", ".cn", ".net", ".json", ".txt", ".m3u"),
+                ).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                        row.forEach { token -> TvButton(token) { write(target, valueOf(target) + token) } }
                     }
                 }
-            }
-        }
-        listOf("abcdef", "ghijkl", "mnopqr", "stuvwx", "yz").forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
-                row.forEach { char ->
-                    Keycap(char.toString()) {
-                        val text = char.toString()
-                        when (target) {
-                            "name" -> name += text
-                            "epg" -> epg += text
-                            else -> url += text
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    "1234567890".forEach { char ->
+                        Keycap(char.toString()) { write(target, valueOf(target) + char) }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                    listOf(":", "/", ".", "-", "_", "?", "=", "&", "%").forEach { token ->
+                        Keycap(token) { write(target, valueOf(target) + token) }
+                    }
+                }
+                listOf("abcdefg", "hijklmn", "opqrstu", "vwxyz").forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        row.forEach { char ->
+                            val text = if (uppercase) char.uppercase() else char.toString()
+                            Keycap(text) { write(target, valueOf(target) + text) }
                         }
                     }
                 }
             }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
-            TvButton("退格") {
-                when (target) {
-                    "name" -> name = name.dropLast(1)
-                    "epg" -> epg = epg.dropLast(1)
-                    else -> url = url.dropLast(1)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
+                TvButton(if (uppercase) "小写" else "大写") { uppercase = !uppercase }
+                TvButton("退格") { write(target, valueOf(target).dropLast(1)) }
+                TvButton("清空") { write(target, "") }
+                if (!clipboard.isNullOrBlank()) {
+                    TvButton("粘贴") { write(target, clipboard) }
                 }
+                TvButton(if (systemIme) "使用屏幕键盘" else "使用系统键盘") { systemIme = !systemIme }
             }
-            TvButton("粘贴") {
-                val text = readClipboard(context).orEmpty()
-                when (target) {
-                    "name" -> name = text
-                    "epg" -> epg = text
-                    else -> url = text
-                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp, bottom = 12.dp)) {
+                TvButton("保存", primary = true) { onSave(name, url, epg) }
+                TvButton("取消", onClick = onDismiss)
             }
-            TvButton("保存", primary = true) { onSave(name, url, epg) }
-            TvButton("取消", onClick = onDismiss)
         }
+        PhoneQrCard(modifier = Modifier.padding(start = 20.dp))
     }
 }
 
 @Composable
-private fun Field(label: String, value: String, onFocus: () -> Unit) {
+private fun Field(label: String, value: String, selected: Boolean, onFocus: () -> Unit) {
     val palette = LocalPalette.current
-    Text(label, color = palette.muted, modifier = Modifier.padding(top = 12.dp))
-    TvButton(value.ifBlank { "空" }, modifier = Modifier.padding(top = 4.dp), onClick = onFocus)
+    Text(label, color = if (selected) palette.accent else palette.muted, modifier = Modifier.padding(top = 12.dp))
+    TvButton(value.ifBlank { "空" }.let { if (it.length > 72) it.take(32) + "…" + it.takeLast(36) else it }, modifier = Modifier.padding(top = 4.dp), primary = selected, onClick = onFocus)
 }
 
 @Composable
@@ -397,7 +431,7 @@ private fun BackupPage() {
             TvButton("粘贴") { raw = readClipboard(context).orEmpty() }
             TvButton("导入") {
                 scope.launch {
-                    message = runCatching { "已导入 ${app.backup.import(raw)} 个接口" }.getOrElse { it.message ?: "导入失败" }
+                    message = runCatching { app.backup.import(raw) }.getOrElse { UserFacingError.message(it) }
                 }
             }
         }
@@ -410,7 +444,7 @@ private fun AboutPage() {
     Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
         Text("关于简匣", color = palette.text, fontSize = 26.sp)
         Text(
-            "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。这是一个空壳播放器：安装包里没有片源，也没有预置接口。\n\n目前支持 TVBox JSON 里的苹果 CMS（type 0 XML、type 1 JSON）、直接填写苹果 CMS 地址，以及 M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。解析架构留了注册口，以后可以单独加上。",
+            "版本 ${app.jianxia.tv.BuildConfig.VERSION_NAME}。这是一个空壳播放器：安装包里没有片源，也没有预置接口。\n\n目前支持 TVBox JSON（含常见的 Base64、图片隐藏和注释）、苹果 CMS（type 0 XML、type 1 JSON）、M3U / TXT 直播和 XMLTV 节目单。\n\nJAR、JS 爬虫站点会显示为不支持，不会执行下载的代码。添加接口时优先用手机扫码。",
             color = palette.muted,
             modifier = Modifier.padding(top = 12.dp).width(720.dp),
             lineHeight = 24.sp,

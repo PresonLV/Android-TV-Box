@@ -2,6 +2,7 @@ package app.jianxia.tv.data.lan
 
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import app.jianxia.core.UserFacingError
 import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.SourceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -123,6 +124,7 @@ class LanServer(
     private fun handle(socket: Socket) {
         socket.soTimeout = 8_000
         val request = readRequest(socket) ?: return
+        socket.soTimeout = 60_000
         val pin = queryPin(request.path) ?: header(request.headers, "x-pin")
         val route = request.path.substringBefore("?")
         if (route == "/" || route.isEmpty()) {
@@ -160,6 +162,10 @@ class LanServer(
                         sources.delete(parseObject(body).str("id").orEmpty())
                         sourcesJson("已删除")
                     }
+                    request.method == "POST" && route == "/api/sources/retry" -> {
+                        val message = sources.recheck(parseObject(body).str("id").orEmpty())
+                        sourcesJson(message)
+                    }
                     request.method == "POST" && route == "/api/sources/toggle" -> {
                         val obj = parseObject(body)
                         sources.setEnabled(obj.str("id").orEmpty(), obj.str("enabled") != "false")
@@ -171,8 +177,10 @@ class LanServer(
                         sourcesJson("已调整顺序")
                     }
                     request.method == "POST" && route == "/api/import" -> {
-                        val count = backup.import(body)
-                        """{"ok":true,"message":"已导入 $count 个接口"}"""
+                        buildJsonObject {
+                            put("ok", true)
+                            put("message", backup.import(body))
+                        }.toString()
                     }
                     else -> error("没有这个操作")
                 }
@@ -187,7 +195,7 @@ class LanServer(
                 }
             },
             onFailure = { error ->
-                write(socket, 400, "application/json", errorJson(error.message ?: "失败").toByteArray())
+                write(socket, 400, "application/json", errorJson(UserFacingError.message(error)).toByteArray())
             },
         )
     }
@@ -206,14 +214,18 @@ class LanServer(
                         put("kind", source.kind)
                         put("epgUrl", source.epgUrl.orEmpty())
                         put("enabled", source.enabled)
+                        put("note", source.note)
                     })
                 }
             })
         }.toString()
     }
 
-    private fun parseObject(body: String): JsonObject =
+    private fun parseObject(body: String): JsonObject = try {
         json.parseToJsonElement(body).jsonObject
+    } catch (_: Exception) {
+        throw IllegalArgumentException("请求内容无法识别")
+    }
 
     private fun JsonObject.str(key: String): String? =
         this[key]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
@@ -330,7 +342,7 @@ class LanServer(
             <p id="msg"></p>
             <div id="list"></div>
             <h2>导入 / 导出</h2>
-            <textarea id="backup" rows="6" placeholder="把备份 JSON 粘贴到这里"></textarea>
+            <textarea id="backup" rows="6" placeholder="粘贴备份 JSON，或每行写一个网址"></textarea>
             <div class="row">
               <button onclick="importBackup()">导入并覆盖</button>
               <button class="ghost" onclick="exportBackup()">下载备份</button>
@@ -338,13 +350,28 @@ class LanServer(
             <script>
             const pin = new URLSearchParams(location.search).get('pin');
             const q = pin ? ('?pin=' + encodeURIComponent(pin)) : '';
+            function friendly(error){
+              const text = (error && error.message) ? String(error.message) : '';
+              if (!text || text === 'Load failed' || text === 'Failed to fetch' || text === 'Network request failed' || text.indexOf('NetworkError') === 0 || text === 'The Internet connection appears to be offline.') {
+                return '电视没有及时回应。接口可能已经保存，请看下面的列表。';
+              }
+              if (text.indexOf('Unexpected JSON') >= 0 || text.indexOf('JSON input') >= 0) {
+                return '这不是备份文件。如果要添加接口，请每行写一个网址。';
+              }
+              return text;
+            }
             async function api(path, opts){
               const res = await fetch(path + q, opts);
-              const data = await res.json().catch(function(){ return {ok:false,message:'无法解析响应'}; });
-              if(!res.ok || data.ok===false) throw new Error(data.message || '失败');
+              const data = await res.json().catch(function(){ return {ok:false, message:'电视返回的内容无法识别'}; });
+              if(!res.ok || data.ok===false) throw new Error(data.message || '操作没有完成');
               return data;
             }
             function say(text){ document.getElementById('msg').textContent = text || ''; }
+            function kindName(item){
+              if (item.note) return item.note;
+              const map = {tvbox:'TVBox 配置', maccms_json:'苹果 CMS JSON', maccms_xml:'苹果 CMS XML', live:'直播', failed:'加载失败，可重试'};
+              return map[item.kind] || '未知格式';
+            }
             async function load(){
               const data = await api('/api/sources');
               const box = document.getElementById('list');
@@ -355,12 +382,13 @@ class LanServer(
                 const title = document.createElement('strong');
                 title.textContent = item.name + (item.enabled ? '' : '（已停用）');
                 const meta = document.createElement('div');
-                meta.textContent = item.kind + ' · ' + item.url;
+                meta.textContent = kindName(item) + ' · ' + item.url;
                 const row = document.createElement('div');
                 row.className = 'row';
                 row.appendChild(btn('上移', function(){ move(item.id,'up'); }));
                 row.appendChild(btn('下移', function(){ move(item.id,'down'); }));
                 row.appendChild(btn(item.enabled?'停用':'启用', function(){ toggle(item); }));
+                if (item.kind === 'failed' || item.note) row.appendChild(btn('重试', function(){ retry(item.id); }));
                 row.appendChild(btn('删除', function(){ remove(item.id); }));
                 card.appendChild(title); card.appendChild(meta); card.appendChild(row);
                 box.appendChild(card);
@@ -369,15 +397,29 @@ class LanServer(
             }
             function btn(text, action){ const b = document.createElement('button'); b.className='ghost'; b.textContent=text; b.onclick=action; return b; }
             async function add(){
-              try { const data = await api('/api/sources', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:document.getElementById('name').value,url:document.getElementById('url').value,epg:document.getElementById('epg').value})}); document.getElementById('url').value=''; say(data.message); load(); }
-              catch(e){ say(e.message); }
+              say('添加中…');
+              try {
+                const data = await api('/api/sources', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:document.getElementById('name').value,url:document.getElementById('url').value,epg:document.getElementById('epg').value})});
+                document.getElementById('url').value='';
+                say(data.message && data.message.indexOf('加载失败') < 0 ? ('成功。' + data.message) : (data.message || '成功'));
+                load();
+              } catch(e){ say(friendly(e)); load().catch(function(){}); }
             }
-            async function move(id, direction){ try { await api('/api/sources/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:id,direction:direction})}); load(); } catch(e){ say(e.message);} }
-            async function toggle(item){ try { await api('/api/sources/toggle', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:item.id, enabled: item.enabled?'false':'true'})}); load(); } catch(e){ say(e.message);} }
-            async function remove(id){ if(!confirm('删除这个接口？')) return; try { await api('/api/sources/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:id})}); load(); } catch(e){ say(e.message);} }
-            async function importBackup(){ try { const data = await api('/api/import', {method:'POST', headers:{'Content-Type':'application/json'}, body: document.getElementById('backup').value}); say(data.message); load(); } catch(e){ say(e.message);} }
+            async function retry(id){
+              say('添加中…');
+              try { const data = await api('/api/sources/retry', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:id})}); say(data.message || '成功'); load(); }
+              catch(e){ say(friendly(e)); load().catch(function(){}); }
+            }
+            async function move(id, direction){ try { await api('/api/sources/move', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:id,direction:direction})}); load(); } catch(e){ say(friendly(e));} }
+            async function toggle(item){ try { await api('/api/sources/toggle', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:item.id, enabled: item.enabled?'false':'true'})}); load(); } catch(e){ say(friendly(e));} }
+            async function remove(id){ if(!confirm('删除这个接口？')) return; try { await api('/api/sources/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id:id})}); load(); } catch(e){ say(friendly(e));} }
+            async function importBackup(){
+              say('添加中…');
+              try { const data = await api('/api/import', {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: document.getElementById('backup').value}); say(data.message || '成功'); load(); }
+              catch(e){ say(friendly(e)); load().catch(function(){}); }
+            }
             function exportBackup(){ location.href = '/api/export' + q; }
-            load().catch(function(e){ say(e.message); });
+            load().catch(function(e){ say(friendly(e)); });
             </script>
             </main></body></html>
         """

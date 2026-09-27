@@ -100,7 +100,7 @@ fun AppRoot() {
                     HomeScreen(
                         onOpen = { nav.navigate("detail/${navKey(it)}") },
                         onPlay = { nav.navigate("player") },
-                        onSettings = { nav.navigate("settings") },
+                        onSettings = { nav.navigate("settings/add") },
                     )
                 }
                 composable("search") { SearchScreen(onOpen = { nav.navigate("detail/${navKey(it)}") }) }
@@ -108,6 +108,7 @@ fun AppRoot() {
                 composable("favorites") { LibraryScreen(favorites = true, onOpen = { nav.navigate("detail/${navKey(it)}") }) }
                 composable("history") { LibraryScreen(favorites = false, onOpen = { nav.navigate("detail/${navKey(it)}") }, onPlay = { nav.navigate("player") }) }
                 composable("settings") { SettingsScreen() }
+                composable("settings/add") { SettingsScreen(start = "sources", openCreate = true) }
                 composable("detail/{key}") { back ->
                     DetailScreen(
                         encodedKey = back.arguments?.getString("key").orEmpty(),

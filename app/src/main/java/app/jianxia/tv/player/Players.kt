@@ -14,7 +14,7 @@ import app.jianxia.tv.data.net.Ua
 object Players {
     fun create(context: Context, software: Boolean): ExoPlayer {
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(Ua.VALUE)
+            .setUserAgent(Ua.MEDIA)
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(12_000)
             .setReadTimeoutMs(20_000)
