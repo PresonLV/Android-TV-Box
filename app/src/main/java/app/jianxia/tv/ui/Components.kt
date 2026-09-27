@@ -184,14 +184,23 @@ fun PosterCard(
 }
 
 @Composable
-fun Poster(url: String?, title: String, modifier: Modifier = Modifier) {
+fun Poster(
+    url: String?,
+    title: String,
+    modifier: Modifier = Modifier,
+    maxWidthPx: Int = 420,
+    maxHeightPx: Int = 600,
+    fade: Boolean = true,
+) {
     val palette = LocalPalette.current
     val context = LocalContext.current
     Box(modifier.background(palette.surface2), contentAlignment = Alignment.Center) {
         Text(title.take(1).ifBlank { "片" }, color = palette.accent, fontSize = 28.sp, fontWeight = FontWeight.Medium)
         if (!url.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context).data(url).crossfade(180).build(),
+                model = remember(url, maxWidthPx, maxHeightPx, fade) {
+                    limitedImage(context, url, maxWidthPx, maxHeightPx, fade)
+                },
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

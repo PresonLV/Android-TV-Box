@@ -50,6 +50,7 @@ import app.jianxia.core.model.accentLabel
 import app.jianxia.core.model.aspectLabel
 import app.jianxia.core.model.decoderLabel
 import app.jianxia.core.model.displayTitle
+import app.jianxia.core.model.layoutLabel
 import app.jianxia.core.model.engineLabel
 import app.jianxia.core.model.fontLabel
 import app.jianxia.core.model.modeLabel
@@ -79,7 +80,7 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
             Text("设置", color = palette.text, fontSize = 28.sp)
             Text("用方向键选择，确认键打开。每一项都会显示当前值。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 16.dp))
             SettingRow("外观", "${settings.modeLabel()} · ${settings.accentLabel()} · ${settings.wallpaperLabel()}") { onOpen("look") }
-            SettingRow("首页", "${settings.posterLabel()}海报 · ${settings.homeRows.count { it.visible }} 行") { onOpen("home") }
+            SettingRow("首页", "${settings.layoutLabel()} · ${settings.posterLabel()}海报 · ${settings.homeRows.count { it.visible }} 行") { onOpen("home") }
             SettingRow("播放", "${settings.engineLabel()} · ${settings.speedLabel()} · ${settings.aspectLabel()}") { onOpen("play") }
             SettingRow("接口与线路", if (settings.autoLineSelect) "自动选线开" else "自动选线关") { onOpen("lines") }
             SettingRow("数据与备份", "导入、导出") { onOpen("backup") }
@@ -270,8 +271,27 @@ internal fun HomeStudio() {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    SectionPage(title = "首页", hint = "上面是栏目预览，下面可以调整海报和每一行。") {
-        Text("栏目预览", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
+    SectionPage(title = "首页", hint = "先选布局。影院模式是大图首页，经典是原来的列表。") {
+        Text("布局", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LayoutPreview("影院模式", cinema = true, selected = settings.homeLayout != "classic", Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(homeLayout = "cinema") } }
+            }
+            LayoutPreview("经典", cinema = false, selected = settings.homeLayout == "classic", Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(homeLayout = "classic") } }
+            }
+        }
+        Text("动效", color = palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceCard("流畅", !settings.reduceMotion, Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(reduceMotion = false) } }
+            }
+            ChoiceCard("关闭", settings.reduceMotion, Modifier.weight(1f)) {
+                scope.launch { app.settings.update { it.copy(reduceMotion = true) } }
+            }
+        }
+        Text("关闭后首页不再淡入，大图也不再模糊，适合比较慢的盒子。", color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("栏目预览", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(palette.surface).padding(12.dp),
         ) {
@@ -392,6 +412,60 @@ internal fun SettingRow(title: String, value: String, onClick: () -> Unit) {
         ) {
             Text(title, color = palette.text, fontSize = 18.sp, modifier = Modifier.weight(1f))
             if (value.isNotBlank()) Text(value, color = palette.accent, fontSize = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun LayoutPreview(
+    title: String,
+    cinema: Boolean,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = palette.surface,
+            focusedContainerColor = palette.surface2,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = if (selected) Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(14.dp)) else Border.None,
+            focusedBorder = Border(BorderStroke(3.dp, palette.accent), shape = RoundedCornerShape(14.dp)),
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            Box(
+                Modifier.fillMaxWidth().height(78.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFF10141C)).padding(8.dp),
+            ) {
+                if (cinema) {
+                    Column {
+                        Box(Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(6.dp)).background(palette.accent.copy(alpha = 0.55f)))
+                        Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            repeat(4) {
+                                Box(Modifier.width(16.dp).height(22.dp).clip(RoundedCornerShape(3.dp)).background(Color.White.copy(alpha = 0.75f)))
+                            }
+                        }
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        repeat(2) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                repeat(5) {
+                                    Box(Modifier.width(14.dp).height(20.dp).clip(RoundedCornerShape(3.dp)).background(palette.accent.copy(alpha = 0.8f)))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Text(title, color = if (selected) palette.accent else palette.text, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+            Text(if (selected) "当前" else " ", color = palette.muted, fontSize = 12.sp)
         }
     }
 }

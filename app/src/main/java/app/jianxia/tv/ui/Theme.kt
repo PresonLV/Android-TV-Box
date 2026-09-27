@@ -107,6 +107,15 @@ private fun parseAccent(hex: String): Color = runCatching {
     Color(android.graphics.Color.parseColor(hex))
 }.getOrDefault(Color(0xFFE2B15A))
 
+internal fun cinemaPalette(accent: Color): Palette =
+    darkPalette(accent).copy(bg = Color(0xFF07080C), surface = Color(0xFF12151C))
+
+@Composable
+fun ProvideCinema(content: @Composable () -> Unit) {
+    val accent = LocalPalette.current.accent
+    CompositionLocalProvider(LocalPalette provides cinemaPalette(accent), content = content)
+}
+
 private fun darkPalette(accent: Color, gradientId: String = "ink") = Palette(
     dark = true,
     bg = Color(0xFF0C0E13),

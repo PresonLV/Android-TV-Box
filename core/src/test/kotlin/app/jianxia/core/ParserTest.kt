@@ -236,6 +236,12 @@ class MergeRankTest {
         assertEquals("medium", reset.fontScale)
         assertEquals(0, reset.wallpaperBlur)
         assertEquals(12, app.jianxia.core.model.AppearanceCatalog.wallpapers.size)
+        assertEquals("cinema", AppSettings().sanitized().homeLayout)
+        assertEquals("classic", AppSettings(homeLayout = "classic").sanitized().homeLayout)
+        assertEquals("cinema", AppSettings(homeLayout = "unknown").sanitized().homeLayout)
+        val homeReset = AppSettings(homeLayout = "classic", reduceMotion = true).resetSection("home").sanitized()
+        assertEquals("cinema", homeReset.homeLayout)
+        assertEquals(false, homeReset.reduceMotion)
         val raw = BackupCodec.encode(
             app.jianxia.core.model.BackupBundle(
                 settings = settings,

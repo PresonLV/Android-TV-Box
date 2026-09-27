@@ -26,6 +26,7 @@ import androidx.lifecycle.viewModelScope
 import app.jianxia.core.model.MergedVod
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
+import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.Poster
 import app.jianxia.tv.ui.ScreenPadding
@@ -33,11 +34,15 @@ import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
 import app.jianxia.tv.ui.appViewModel
 import app.jianxia.tv.ui.fromNav
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class DetailState(
     val loading: Boolean = true,
@@ -55,6 +60,9 @@ data class DetailState(
 class DetailViewModel(private val app: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(DetailState())
     val state: StateFlow<DetailState> = _state.asStateFlow()
+    private val _speeds = MutableStateFlow<Map<String, String>>(emptyMap())
+    val speeds: StateFlow<Map<String, String>> = _speeds.asStateFlow()
+    private var probeJob: Job? = null
 
     fun open(encoded: String) {
         val key = fromNav(encoded)
@@ -108,6 +116,34 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
         onPlay()
     }
 
+    fun refreshSpeeds() {
+        probeJob?.cancel()
+        val snapshot = _state.value
+        val item = snapshot.item ?: return
+        val variant = item.variants.getOrNull(snapshot.sourceIndex) ?: return
+        _speeds.value = emptyMap()
+        probeJob = viewModelScope.launch {
+            val next = linkedMapOf<String, String>()
+            for (line in variant.lines.take(6)) {
+                if (!isActive) return@launch
+                val id = "${variant.sourceKey}::${line.name}"
+                val url = line.episodes.firstOrNull()?.url.orEmpty()
+                val label = if (!url.startsWith("http")) {
+                    "不可用"
+                } else {
+                    val measure = withContext(Dispatchers.IO) { runCatching { app.http.probe(url) }.getOrNull() }
+                    when {
+                        measure == null || !measure.ok -> "不可用"
+                        measure.resolutionHeight != null -> "${measure.connectMs + measure.firstByteMs} 毫秒 · ${measure.resolutionHeight}p"
+                        else -> "${measure.connectMs + measure.firstByteMs} 毫秒"
+                    }
+                }
+                next[id] = label
+                _speeds.value = next.toMap()
+            }
+        }
+    }
+
     private fun locate(item: MergedVod, lineId: String?): Pair<Int, Int> {
         if (lineId.isNullOrBlank()) return 0 to 0
         item.variants.forEachIndexed { sourceIndex, variant ->
@@ -128,9 +164,14 @@ private fun lineId(item: MergedVod, sourceIndex: Int, lineIndex: Int): String? {
 @Composable
 fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
     val palette = LocalPalette.current
+    val settings by LocalApp.current.settings.state.collectAsStateWithLifecycle()
     val vm: DetailViewModel = appViewModel { DetailViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(encodedKey) { vm.open(encodedKey) }
+    if (settings.homeLayout == "cinema") {
+        CinemaDetail(vm, onPlay, onBack)
+        return
+    }
     BackHandler(onBack = onBack)
     val item = state.item
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {

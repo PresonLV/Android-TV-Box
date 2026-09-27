@@ -13,7 +13,7 @@ android {
         applicationId = "app.jianxia.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 4
+        versionCode = 5
         versionName = "0.2.0-beta"
         vectorDrawables.useSupportLibrary = true
     }

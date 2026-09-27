@@ -53,6 +53,14 @@ object AppearanceCatalog {
         AppearanceItem("medium", "中"),
         AppearanceItem("large", "大"),
     )
+    val layouts = listOf(
+        AppearanceItem("cinema", "影院模式"),
+        AppearanceItem("classic", "经典"),
+    )
+    val motions = listOf(
+        AppearanceItem("on", "流畅"),
+        AppearanceItem("off", "关闭"),
+    )
     val engines = listOf(
         AppearanceItem("vlc", "VLC"),
         AppearanceItem("exo", "系统 (ExoPlayer)"),
@@ -113,6 +121,10 @@ fun AppSettings.fontLabel(): String = AppearanceCatalog.label(AppearanceCatalog.
 
 fun AppSettings.posterLabel(): String = AppearanceCatalog.label(AppearanceCatalog.posters, posterSize, "中")
 
+fun AppSettings.layoutLabel(): String = if (homeLayout == "classic") "经典" else "影院模式"
+
+fun AppSettings.motionLabel(): String = if (reduceMotion) "关闭" else "流畅"
+
 fun AppSettings.engineLabel(): String = if (playerEngine == "exo") "系统 (ExoPlayer)" else "VLC"
 
 fun AppSettings.decoderLabel(): String = if (decoder == "software") "软件" else "硬件"
@@ -171,7 +183,12 @@ fun AppSettings.resetSection(section: String): AppSettings {
             wallpaperDim = fresh.wallpaperDim,
             fontScale = fresh.fontScale,
         )
-        "home" -> copy(homeRows = HomeRowSetting.defaults(), posterSize = fresh.posterSize)
+        "home" -> copy(
+            homeRows = HomeRowSetting.defaults(),
+            posterSize = fresh.posterSize,
+            homeLayout = fresh.homeLayout,
+            reduceMotion = fresh.reduceMotion,
+        )
         "play" -> copy(
             playerEngine = fresh.playerEngine,
             decoder = fresh.decoder,

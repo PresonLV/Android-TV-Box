@@ -84,6 +84,25 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
     var busy by remember { mutableStateOf(false) }
     val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}:${it.kind}:${it.note}" }
     LaunchedEffect(fingerprint, settings.defaultSourceId, settings.searchTimeoutSec) { vm.load() }
+    if (settings.homeLayout == "cinema") {
+        CinemaHome(
+            app = app,
+            settings = settings,
+            sourcesEmpty = sources.none { it.enabled },
+            history = history,
+            favorites = favorites,
+            catalog = state.catalog,
+            loading = state.loading,
+            error = state.error,
+            busy = busy,
+            onBusy = { busy = it },
+            onOpen = onOpen,
+            onPlay = onPlay,
+            onSettings = onSettings,
+            onRetry = { vm.load() },
+        )
+        return
+    }
     val (posterW, posterH) = posterSize(settings.posterSize)
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {

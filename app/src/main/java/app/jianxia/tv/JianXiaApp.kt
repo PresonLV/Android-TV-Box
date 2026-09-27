@@ -14,6 +14,7 @@ import app.jianxia.tv.data.repo.LibraryRepository
 import app.jianxia.tv.data.repo.LiveRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
+import app.jianxia.tv.ui.installImageLoader
 
 class JianXiaApp : Application() {
     lateinit var container: AppContainer
@@ -21,6 +22,7 @@ class JianXiaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installImageLoader(this)
         container = AppContainer(this)
         ProcessLifecycleOwner.get().lifecycle.addObserver(container.lan.observer)
     }

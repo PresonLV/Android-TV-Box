@@ -1,5 +1,7 @@
 package app.jianxia.tv.ui
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +23,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,10 +73,26 @@ fun AppRoot() {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route.orEmpty()
     val showRail = route != "player" && !route.startsWith("detail")
+    val cinema = settings.homeLayout == "cinema"
+    val hideWallpaper = cinema && (route.startsWith("home") || route.startsWith("detail") || route.isEmpty())
     Box(Modifier.fillMaxSize().background(palette.bg)) {
-        WallpaperLayer(settings, Modifier.fillMaxSize())
+        if (!hideWallpaper) WallpaperLayer(settings, Modifier.fillMaxSize())
         Row(Modifier.fillMaxSize()) {
-            if (showRail) {
+            if (showRail && cinema) {
+                ProvideCinema {
+                    CinemaRail(
+                        current = route.substringBefore("/"),
+                        reduceMotion = settings.reduceMotion,
+                        onSelect = { target ->
+                            nav.navigate(target) {
+                                popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                    )
+                }
+            } else if (showRail) {
                 Rail(
                     current = route.substringBefore("/"),
                     onSelect = { target ->
@@ -107,6 +130,61 @@ fun AppRoot() {
                     )
                 }
                 composable("player") { PlayerScreen(onBack = { nav.popBackStack() }) }
+            }
+        }
+    }
+}
+
+private val cinemaRail = listOf(
+    RailItem("home", "首页", Icons.Filled.Home),
+    RailItem("search", "搜索", Icons.Filled.Search),
+    RailItem("live", "直播", Icons.Filled.PlayArrow),
+    RailItem("favorites", "收藏", Icons.Filled.Favorite),
+    RailItem("history", "历史", Icons.AutoMirrored.Filled.List),
+    RailItem("settings", "设置", Icons.Filled.Settings),
+)
+
+@Composable
+private fun CinemaRail(current: String, reduceMotion: Boolean, onSelect: (String) -> Unit) {
+    val palette = LocalPalette.current
+    var expanded by remember { mutableStateOf(false) }
+    Column(
+        Modifier
+            .width(if (expanded) 188.dp else 76.dp)
+            .fillMaxHeight()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .onFocusChanged { expanded = it.hasFocus }
+            .then(if (reduceMotion) Modifier else Modifier.animateContentSize(tween(180)))
+            .padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("简匣", color = palette.accent, fontSize = 16.sp, modifier = Modifier.padding(bottom = 12.dp), maxLines = 1)
+        cinemaRail.forEach { item ->
+            val selected = current == item.route
+            Surface(
+                onClick = { onSelect(item.route) },
+                modifier = Modifier.padding(vertical = 4.dp).width(if (expanded) 164.dp else 56.dp),
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    containerColor = if (selected) palette.accent.copy(alpha = 0.2f) else Color.Transparent,
+                    contentColor = if (selected) palette.accent else palette.text,
+                    focusedContainerColor = palette.surface2,
+                    focusedContentColor = palette.accent,
+                ),
+                scale = ClickableSurfaceDefaults.scale(focusedScale = if (reduceMotion) 1f else 1.04f),
+                border = ClickableSurfaceDefaults.border(
+                    focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(16.dp)),
+                ),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp), tint = if (selected) palette.accent else palette.text)
+                    if (expanded) {
+                        Text(item.label, color = if (selected) palette.accent else palette.text, fontSize = 15.sp, modifier = Modifier.padding(start = 10.dp))
+                    }
+                }
             }
         }
     }
