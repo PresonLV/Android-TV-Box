@@ -32,6 +32,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
 import app.jianxia.core.UserFacingError
 import app.jianxia.core.model.MergedVod
+import app.jianxia.core.model.displayTitle
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.repo.HomeCatalog
@@ -114,7 +115,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
                 settings.homeRows.filter { it.visible }.forEach { row ->
                     when (row.id) {
                         "history" -> if (history.isNotEmpty()) {
-                            SectionTitle(row.title, Modifier.padding(top = 8.dp, bottom = 8.dp))
+                            SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(end = 24.dp, bottom = 8.dp)) {
                                 items(history, key = { it.titleKey }) { item ->
                                     val fraction = if (item.durationMs > 0) item.positionMs / item.durationMs.toFloat() else null
@@ -142,7 +143,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
                             }
                         }
                         "favorite" -> if (favorites.isNotEmpty()) {
-                            SectionTitle(row.title, Modifier.padding(top = 8.dp, bottom = 8.dp))
+                            SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
                                 items(favorites, key = { it.titleKey }) { item ->
                                     PosterCard(item.title, item.pic, item.typeName, posterW, posterH, onClick = { onOpen(item.titleKey) })
@@ -152,7 +153,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
                         else -> {
                             val items = state.catalog?.rows?.get(row.id).orEmpty()
                             if (items.isNotEmpty()) {
-                                SectionTitle(row.title, Modifier.padding(top = 8.dp, bottom = 8.dp))
+                                SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
                                     items(items, key = { it.key }) { item ->
                                         PosterCard(item.title, item.pic, meta(item), posterW, posterH, onClick = { onOpen(item.key) })

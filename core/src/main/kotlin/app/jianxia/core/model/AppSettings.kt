@@ -10,8 +10,8 @@ data class HomeRowSetting(
 ) {
     companion object {
         fun defaults(): List<HomeRowSetting> = listOf(
-            HomeRowSetting("history", "继续观看", true),
-            HomeRowSetting("favorite", "我的收藏", true),
+            HomeRowSetting("history", "最近播放", true),
+            HomeRowSetting("favorite", "收藏", true),
             HomeRowSetting("latest", "最新", true),
             HomeRowSetting("movie", "电影", true),
             HomeRowSetting("tv", "电视剧", true),
@@ -26,9 +26,14 @@ data class HomeRowSetting(
 data class AppSettings(
     val themeMode: String = "dark",
     val accent: String = "#E2B15A",
-    val backgroundType: String = "gradient",
+    val backgroundType: String = "builtin",
     val gradientId: String = "ink",
     val backgroundImageUrl: String = "",
+    val wallpaperId: String = "",
+    val solidColor: String = "#12151C",
+    val wallpaperBlur: Int = 0,
+    val wallpaperDim: Int = 28,
+    val fontScale: String = "medium",
     val homeRows: List<HomeRowSetting> = HomeRowSetting.defaults(),
     val posterSize: String = "medium",
     val defaultSourceId: String = "",
@@ -43,11 +48,33 @@ data class AppSettings(
     val lastLiveUrl: String = "",
 ) {
     fun sanitized(): AppSettings = copy(
-        themeMode = if (themeMode == "light") "light" else "dark",
+        themeMode = when (themeMode) {
+            "light" -> "light"
+            "system" -> "system"
+            else -> "dark"
+        },
         accent = if (ACCENT_HEX.matches(accent)) accent else "#E2B15A",
-        backgroundType = if (backgroundType == "image") "image" else "gradient",
-        gradientId = if (gradientId in GRADIENTS) gradientId else "ink",
+        backgroundType = when {
+            backgroundType == "image" && backgroundImageUrl.isNotBlank() -> "image"
+            backgroundType == "solid" -> "solid"
+            backgroundType == "none" -> "none"
+            else -> "builtin"
+        },
+        wallpaperId = when {
+            wallpaperId in WALLPAPERS -> wallpaperId
+            gradientId in WALLPAPERS -> gradientId
+            else -> "ink"
+        },
+        gradientId = when {
+            wallpaperId in GRADIENTS -> wallpaperId
+            gradientId in GRADIENTS -> gradientId
+            else -> "ink"
+        },
         backgroundImageUrl = backgroundImageUrl.trim(),
+        solidColor = if (ACCENT_HEX.matches(solidColor)) solidColor else "#12151C",
+        wallpaperBlur = wallpaperBlur.coerceIn(0, 24),
+        wallpaperDim = wallpaperDim.coerceIn(0, 80),
+        fontScale = if (fontScale in FONT_SCALES) fontScale else "medium",
         homeRows = sanitizeRows(homeRows),
         posterSize = if (posterSize in POSTER_SIZES) posterSize else "medium",
         defaultSourceId = defaultSourceId.trim(),
@@ -67,6 +94,8 @@ data class AppSettings(
 
     companion object {
         val GRADIENTS = setOf("ink", "dusk", "ocean", "forest", "ember")
+        val WALLPAPERS = AppearanceCatalog.wallpaperIds
+        val FONT_SCALES = AppearanceCatalog.fontIds
         val POSTER_SIZES = setOf("small", "medium", "large")
         val ASPECTS = setOf("fit", "fill", "zoom", "16:9", "4:3")
         private val ACCENT_HEX = Regex("#[0-9A-Fa-f]{6}")

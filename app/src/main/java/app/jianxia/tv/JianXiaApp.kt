@@ -35,7 +35,7 @@ class AppContainer(context: Application) {
     val catalog = CatalogRepository(http, sources, CatalogStore())
     val live = LiveRepository(http)
     val backup = BackupRepository(settings, sources)
-    val lan = LanServer(sources, backup)
+    val lan = LanServer(context, sources, backup, settings)
     val session = PlaybackSession()
     val pinyin: PinyinIme = PinyinIme.loadDefault()
 }

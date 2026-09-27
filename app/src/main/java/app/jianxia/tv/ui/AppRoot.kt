@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -44,7 +43,6 @@ import app.jianxia.tv.ui.live.LiveScreen
 import app.jianxia.tv.ui.player.PlayerScreen
 import app.jianxia.tv.ui.search.SearchScreen
 import app.jianxia.tv.ui.settings.SettingsScreen
-import coil.compose.AsyncImage
 import androidx.compose.foundation.BorderStroke
 
 private data class RailItem(val route: String, val label: String, val icon: ImageVector)
@@ -68,16 +66,8 @@ fun AppRoot() {
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route.orEmpty()
     val showRail = route != "player" && !route.startsWith("detail")
-    Box(Modifier.fillMaxSize().background(palette.gradient)) {
-        if (settings.backgroundType == "image" && settings.backgroundImageUrl.isNotBlank()) {
-            AsyncImage(
-                model = settings.backgroundImageUrl,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-            )
-            Box(Modifier.fillMaxSize().background(palette.bg.copy(alpha = if (palette.dark) 0.72f else 0.55f)))
-        }
+    Box(Modifier.fillMaxSize().background(palette.bg)) {
+        WallpaperLayer(settings, Modifier.fillMaxSize())
         Row(Modifier.fillMaxSize()) {
             if (showRail) {
                 Rail(

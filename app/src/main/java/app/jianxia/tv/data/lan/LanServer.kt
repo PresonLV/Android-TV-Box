@@ -1,9 +1,15 @@
 package app.jianxia.tv.data.lan
 
+import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import app.jianxia.core.UserFacingError
+import app.jianxia.core.model.AppearanceCatalog
+import app.jianxia.core.model.AppearanceItem
+import app.jianxia.core.model.resetSection
+import app.jianxia.core.model.withAppearance
 import app.jianxia.tv.data.repo.BackupRepository
+import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +21,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.ByteArrayOutputStream
@@ -35,8 +42,10 @@ data class LanStatus(
 )
 
 class LanServer(
+    private val context: Context,
     private val sources: SourceRepository,
     private val backup: BackupRepository,
+    private val settings: SettingsRepository,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val running = AtomicBoolean(false)
@@ -127,6 +136,20 @@ class LanServer(
         socket.soTimeout = 60_000
         val pin = queryPin(request.path) ?: header(request.headers, "x-pin")
         val route = request.path.substringBefore("?")
+        if (request.method == "GET" && route.startsWith("/wallpapers/") && route.endsWith(".webp")) {
+            val id = route.removePrefix("/wallpapers/").removeSuffix(".webp")
+            val bytes = if (id in AppearanceCatalog.wallpaperIds) {
+                runCatching { context.assets.open("wallpapers/$id.webp").use { it.readBytes() } }.getOrNull()
+            } else {
+                null
+            }
+            if (bytes == null) {
+                write(socket, 404, "application/json", errorJson("没有这张壁纸").toByteArray())
+            } else {
+                writeRaw(socket, 200, "image/webp", bytes)
+            }
+            return
+        }
         if (route == "/" || route.isEmpty()) {
             val ok = pin != null && pin == _status.value.pin
             write(socket, 200, "text/html", page(ok).toByteArray())
@@ -141,6 +164,28 @@ class LanServer(
             runCatching {
                 when {
                     request.method == "GET" && route == "/api/sources" -> sourcesJson()
+                    request.method == "GET" && route == "/api/appearance" -> appearanceJson()
+                    request.method == "POST" && route == "/api/appearance" -> {
+                        val obj = parseObject(body)
+                        if (obj.str("reset") == "look") {
+                            settings.update { it.resetSection("look") }
+                        } else {
+                            settings.update { current ->
+                                current.withAppearance(
+                                    themeMode = obj.str("themeMode"),
+                                    accent = obj.str("accent"),
+                                    backgroundType = obj.str("backgroundType"),
+                                    wallpaperId = obj.str("wallpaperId"),
+                                    solidColor = obj.str("solidColor"),
+                                    backgroundImageUrl = if (obj.containsKey("backgroundImageUrl")) obj.raw("backgroundImageUrl").orEmpty() else null,
+                                    wallpaperBlur = obj.int("wallpaperBlur"),
+                                    wallpaperDim = obj.int("wallpaperDim"),
+                                    fontScale = obj.str("fontScale"),
+                                )
+                            }
+                        }
+                        appearanceJson("已保存")
+                    }
                     request.method == "GET" && route == "/api/export" -> backup.export()
                     request.method == "POST" && route == "/api/sources" -> {
                         val obj = parseObject(body)
@@ -221,6 +266,39 @@ class LanServer(
         }.toString()
     }
 
+    private fun appearanceJson(message: String = "ok"): String {
+        val current = settings.state.value
+        return buildJsonObject {
+            put("ok", true)
+            put("message", message)
+            put("settings", buildJsonObject {
+                put("themeMode", current.themeMode)
+                put("accent", current.accent)
+                put("backgroundType", current.backgroundType)
+                put("wallpaperId", current.wallpaperId)
+                put("solidColor", current.solidColor)
+                put("backgroundImageUrl", current.backgroundImageUrl)
+                put("wallpaperBlur", current.wallpaperBlur)
+                put("wallpaperDim", current.wallpaperDim)
+                put("fontScale", current.fontScale)
+            })
+            put("wallpapers", catalog(AppearanceCatalog.wallpapers))
+            put("accents", catalog(AppearanceCatalog.accents))
+            put("modes", catalog(AppearanceCatalog.modes))
+            put("fonts", catalog(AppearanceCatalog.fonts))
+            put("solids", catalog(AppearanceCatalog.solids))
+        }.toString()
+    }
+
+    private fun catalog(items: List<AppearanceItem>) = buildJsonArray {
+        items.forEach { item ->
+            add(buildJsonObject {
+                put("id", item.id)
+                put("label", item.label)
+            })
+        }
+    }
+
     private fun parseObject(body: String): JsonObject = try {
         json.parseToJsonElement(body).jsonObject
     } catch (_: Exception) {
@@ -229,6 +307,12 @@ class LanServer(
 
     private fun JsonObject.str(key: String): String? =
         this[key]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun JsonObject.raw(key: String): String? =
+        this[key]?.jsonPrimitive?.contentOrNull
+
+    private fun JsonObject.int(key: String): Int? =
+        this[key]?.jsonPrimitive?.intOrNull ?: this[key]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
 
     private fun errorJson(message: String) = """{"ok":false,"message":${jsonString(message)}}"""
 
@@ -310,6 +394,14 @@ class LanServer(
         output.flush()
     }
 
+    private fun writeRaw(socket: Socket, code: Int, type: String, body: ByteArray) {
+        val head = "HTTP/1.1 $code OK\r\nContent-Type: $type\r\nContent-Length: ${body.size}\r\nConnection: close\r\nCache-Control: public, max-age=86400\r\n\r\n"
+        val output = socket.getOutputStream()
+        output.write(head.toByteArray())
+        output.write(body)
+        output.flush()
+    }
+
     private fun page(unlocked: Boolean): String = if (unlocked) UNLOCKED_PAGE else LOCKED_PAGE
 
     private companion object {
@@ -332,6 +424,13 @@ class LanServer(
             button.ghost{background:#1c2230;color:#f4f1ea}
             .card{background:#1a2030;border-radius:16px;padding:14px;margin:10px 0}
             .row{display:flex;gap:8px;flex-wrap:wrap}
+            select{width:100%;box-sizing:border-box;background:#1c2230;color:#f4f1ea;border:1px solid #343b4d;border-radius:12px;padding:12px;margin:6px 0 12px}
+            input[type=range]{width:100%;margin:8px 0 14px}
+            .thumbs,.swatches{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+            .thumbs button,.swatches button{padding:0;border:2px solid transparent;background:#1c2230;border-radius:12px;overflow:hidden}
+            .thumbs button.on,.swatches button.on{border-color:#e2b15a}
+            .thumbs img{width:96px;height:54px;object-fit:cover;display:block}
+            .swatches i{display:block;width:56px;height:36px}
             </style></head><body><main>
             <h1>简匣</h1>
             <p>在这里粘贴接口地址。电视不内置任何片源。</p>
@@ -341,6 +440,23 @@ class LanServer(
             <button onclick="add()">添加</button>
             <p id="msg"></p>
             <div id="list"></div>
+            <h2>外观</h2>
+            <p>和电视上的设置是同一份。选好后点保存，电视会马上换上。</p>
+            <label>深浅<select id="themeMode"></select></label>
+            <label>颜色<select id="accent"></select></label>
+            <div id="swatches" class="swatches"></div>
+            <label>壁纸<select id="wallpaperPick"></select></label>
+            <div id="thumbs" class="thumbs"></div>
+            <label>纯色<select id="solidColor"></select></label>
+            <label>自定义图片地址<input id="bgUrl" placeholder="https:// 图片地址，可留空"></label>
+            <label>模糊 <span id="blurVal"></span><input id="blur" type="range" min="0" max="24" value="0"></label>
+            <label>变暗 <span id="dimVal"></span><input id="dim" type="range" min="0" max="80" value="28"></label>
+            <label>文字大小<select id="fontScale"></select></label>
+            <div class="row">
+              <button onclick="saveLook()">保存外观</button>
+              <button class="ghost" onclick="resetLook()">恢复默认外观</button>
+            </div>
+            <p id="lookMsg"></p>
             <h2>导入 / 导出</h2>
             <textarea id="backup" rows="6" placeholder="粘贴备份 JSON，或每行写一个网址"></textarea>
             <div class="row">
@@ -419,7 +535,103 @@ class LanServer(
               catch(e){ say(friendly(e)); load().catch(function(){}); }
             }
             function exportBackup(){ location.href = '/api/export' + q; }
+            function fillSelect(id, items, value){
+              const box = document.getElementById(id);
+              box.innerHTML = '';
+              (items||[]).forEach(function(item){
+                const option = document.createElement('option');
+                option.value = item.id;
+                option.textContent = item.label;
+                if (String(item.id).toLowerCase() === String(value||'').toLowerCase()) option.selected = true;
+                box.appendChild(option);
+              });
+            }
+            function loadLook(){
+              return api('/api/appearance').then(function(data){
+                const s = data.settings || {};
+                fillSelect('themeMode', data.modes, s.themeMode);
+                fillSelect('accent', data.accents, s.accent);
+                fillSelect('fontScale', data.fonts, s.fontScale);
+                fillSelect('solidColor', data.solids, s.solidColor);
+                const picks = [{id:'builtin', label:'内置壁纸'}].concat([{id:'solid', label:'纯色'}, {id:'none', label:'无'}, {id:'image', label:'自定义图片'}]);
+                fillSelect('wallpaperPick', picks, s.backgroundType === 'builtin' ? 'builtin' : (s.backgroundType || 'builtin'));
+                document.getElementById('bgUrl').value = s.backgroundImageUrl || '';
+                document.getElementById('blur').value = s.wallpaperBlur || 0;
+                document.getElementById('dim').value = s.wallpaperDim || 0;
+                document.getElementById('blurVal').textContent = document.getElementById('blur').value;
+                document.getElementById('dimVal').textContent = document.getElementById('dim').value;
+                const thumbs = document.getElementById('thumbs');
+                thumbs.innerHTML = '';
+                (data.wallpapers||[]).forEach(function(item){
+                  const button = document.createElement('button');
+                  button.type = 'button';
+                  button.className = (s.backgroundType === 'builtin' && s.wallpaperId === item.id) ? 'on' : '';
+                  button.title = item.label;
+                  const img = document.createElement('img');
+                  img.alt = item.label;
+                  img.src = '/wallpapers/' + encodeURIComponent(item.id) + '.webp';
+                  button.appendChild(img);
+                  button.onclick = function(){
+                    document.getElementById('wallpaperPick').value = 'builtin';
+                    thumbs.querySelectorAll('button').forEach(function(node){ node.className = ''; });
+                    button.className = 'on';
+                    button.dataset.id = item.id;
+                    thumbs.dataset.picked = item.id;
+                  };
+                  button.dataset.id = item.id;
+                  thumbs.appendChild(button);
+                });
+                thumbs.dataset.picked = s.wallpaperId || '';
+                const swatches = document.getElementById('swatches');
+                swatches.innerHTML = '';
+                (data.accents||[]).forEach(function(item){
+                  const button = document.createElement('button');
+                  button.type = 'button';
+                  button.className = String(s.accent||'').toLowerCase() === String(item.id).toLowerCase() ? 'on' : '';
+                  button.title = item.label;
+                  const chip = document.createElement('i');
+                  chip.style.background = item.id;
+                  button.appendChild(chip);
+                  button.onclick = function(){
+                    document.getElementById('accent').value = item.id;
+                    swatches.querySelectorAll('button').forEach(function(node){ node.className = ''; });
+                    button.className = 'on';
+                  };
+                  swatches.appendChild(button);
+                });
+              });
+            }
+            document.getElementById('blur').oninput = function(){ document.getElementById('blurVal').textContent = this.value; };
+            document.getElementById('dim').oninput = function(){ document.getElementById('dimVal').textContent = this.value; };
+            async function saveLook(){
+              const type = document.getElementById('wallpaperPick').value;
+              const picked = document.getElementById('thumbs').dataset.picked || '';
+              document.getElementById('lookMsg').textContent = '保存中…';
+              try {
+                const data = await api('/api/appearance', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+                  themeMode: document.getElementById('themeMode').value,
+                  accent: document.getElementById('accent').value,
+                  backgroundType: type,
+                  wallpaperId: picked,
+                  solidColor: document.getElementById('solidColor').value,
+                  backgroundImageUrl: document.getElementById('bgUrl').value,
+                  wallpaperBlur: Number(document.getElementById('blur').value),
+                  wallpaperDim: Number(document.getElementById('dim').value),
+                  fontScale: document.getElementById('fontScale').value
+                })});
+                document.getElementById('lookMsg').textContent = data.message || '已保存';
+              } catch(e){ document.getElementById('lookMsg').textContent = friendly(e); }
+            }
+            async function resetLook(){
+              document.getElementById('lookMsg').textContent = '保存中…';
+              try {
+                const data = await api('/api/appearance', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({reset:'look'})});
+                document.getElementById('lookMsg').textContent = data.message || '已恢复';
+                await loadLook();
+              } catch(e){ document.getElementById('lookMsg').textContent = friendly(e); }
+            }
             load().catch(function(e){ say(friendly(e)); });
+            loadLook().catch(function(e){ document.getElementById('lookMsg').textContent = friendly(e); });
             </script>
             </main></body></html>
         """

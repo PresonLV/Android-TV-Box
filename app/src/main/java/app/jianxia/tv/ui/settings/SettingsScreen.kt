@@ -34,6 +34,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jianxia.core.UserFacingError
+import app.jianxia.core.model.AppearanceCatalog
+import app.jianxia.core.model.AppearanceItem
+import app.jianxia.tv.BuildConfig
+import app.jianxia.core.model.resetSection
+import app.jianxia.core.model.withAppearance
 import app.jianxia.tv.data.db.SourceEntity
 import app.jianxia.tv.ui.Keycap
 import app.jianxia.tv.ui.LocalApp
@@ -41,53 +46,85 @@ import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.Panel
 import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.ScreenPadding
-import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
 import app.jianxia.tv.ui.kindLabel
 import kotlinx.coroutines.launch
 
-private val accents = listOf(
-    "金" to "#E2B15A",
-    "青" to "#6FCFC0",
-    "蓝" to "#7C9CFF",
-    "珊瑚" to "#E07A6A",
-    "紫" to "#C084FC",
-    "绿" to "#8FCB7B",
-)
-private val gradients = listOf("ink" to "墨", "dusk" to "暮", "ocean" to "海", "forest" to "林", "ember" to "焰")
-
 @Composable
 fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
-    var section by remember { mutableStateOf(start) }
-    BackHandler(enabled = section != "root") { section = "root" }
-    when (section) {
-        "sources" -> SourcesPage(openCreate = openCreate, onBack = { section = "root" })
-        "look" -> LookPage()
-        "home" -> HomeLayoutPage()
-        "play" -> PlayPage()
+    val app = LocalApp.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
+    val scope = rememberCoroutineScope()
+    var page by remember { mutableStateOf(start) }
+    BackHandler(enabled = page != "root") { page = parentPage(page) }
+    when (page) {
+        "sources" -> SourcesPage(openCreate = openCreate, onBack = { page = parentPage("sources") })
+        "look" -> LookHub { page = it }
+        "theme" -> ThemeStudio()
+        "wallpaper" -> WallpaperStudio { page = "imageUrl" }
+        "imageUrl" -> ImageUrlPage { page = "wallpaper" }
+        "font" -> ChoicePage(
+            title = "文字大小",
+            choices = AppearanceCatalog.fonts,
+            selected = settings.fontScale,
+            onSelect = { id -> scope.launch { app.settings.update { it.withAppearance(fontScale = id) } } },
+            onReset = { scope.launch { app.settings.update { it.resetSection("look") } } },
+        )
+        "home" -> HomeStudio()
+        "play" -> PlayHub { page = it }
+        "engine" -> ChoicePage("播放器内核", AppearanceCatalog.engines, settings.playerEngine, { id ->
+            scope.launch { app.settings.update { it.copy(playerEngine = id) } }
+        }) { scope.launch { app.settings.update { it.resetSection("play") } } }
+        "decoder" -> ChoicePage("解码", AppearanceCatalog.decoders, settings.decoder, { id ->
+            scope.launch { app.settings.update { it.copy(decoder = id) } }
+        }) { scope.launch { app.settings.update { it.resetSection("play") } } }
+        "speed" -> ChoicePage("默认倍速", AppearanceCatalog.speeds, speedId(settings.defaultSpeed), { id ->
+            scope.launch { app.settings.update { it.copy(defaultSpeed = id.toFloat()) } }
+        }) { scope.launch { app.settings.update { it.resetSection("play") } } }
+        "aspect" -> ChoicePage("默认画面", AppearanceCatalog.aspects, settings.aspect, { id ->
+            scope.launch { app.settings.update { it.copy(aspect = id) } }
+        }) { scope.launch { app.settings.update { it.resetSection("play") } } }
+        "startup" -> ChoicePage("启动页", AppearanceCatalog.startups, settings.startupPage, { id ->
+            scope.launch { app.settings.update { it.copy(startupPage = id) } }
+        }) { scope.launch { app.settings.update { it.resetSection("play") } } }
+        "lines" -> LinesHub(
+            sourceName = sources.firstOrNull { it.id == settings.defaultSourceId }?.name ?: "全部",
+            onOpen = { page = it },
+        )
+        "source" -> ChoicePage(
+            title = "默认来源",
+            choices = listOf(AppearanceItem("", "全部")) + sources.map { AppearanceItem(it.id, it.name) },
+            selected = settings.defaultSourceId,
+            onSelect = { id -> scope.launch { app.settings.update { it.copy(defaultSourceId = id) } } },
+            onReset = { scope.launch { app.settings.update { it.resetSection("lines") } } },
+        )
+        "autoline" -> ChoicePage("自动选线", AppearanceCatalog.lineModes, if (settings.autoLineSelect) "on" else "off", { id ->
+            scope.launch { app.settings.update { it.copy(autoLineSelect = id == "on") } }
+        }) { scope.launch { app.settings.update { it.resetSection("lines") } } }
+        "timeout" -> ChoicePage("搜索超时", AppearanceCatalog.timeouts, settings.searchTimeoutSec.toString(), { id ->
+            scope.launch { app.settings.update { it.copy(searchTimeoutSec = id.toInt()) } }
+        }) { scope.launch { app.settings.update { it.resetSection("lines") } } }
         "backup" -> BackupPage()
         "about" -> AboutPage()
-        else -> SettingsRoot { section = it }
+        else -> SettingsMenu(BuildConfig.VERSION_NAME) { page = it }
     }
 }
 
-@Composable
-private fun SettingsRoot(onOpen: (String) -> Unit) {
-    val palette = LocalPalette.current
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
-        Text("设置", color = palette.text, fontSize = 28.sp)
-        Text("所有内容都来自你自己添加的接口。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 16.dp))
-        listOf(
-            "sources" to "接口与直播源",
-            "look" to "外观",
-            "home" to "首页布局",
-            "play" to "播放",
-            "backup" to "导入与导出",
-            "about" to "关于 / 开源许可",
-        ).forEach { (id, label) ->
-            TvButton(label, modifier = Modifier.padding(bottom = 10.dp).width(360.dp)) { onOpen(id) }
-        }
-    }
+private fun parentPage(page: String): String = when (page) {
+    "theme", "wallpaper", "font" -> "look"
+    "imageUrl" -> "wallpaper"
+    "engine", "decoder", "speed", "aspect", "startup" -> "play"
+    "sources", "source", "autoline", "timeout" -> "lines"
+    else -> "root"
+}
+
+private fun speedId(value: Float): String = when {
+    value < 0.9f -> "0.75"
+    value < 1.1f -> "1"
+    value < 1.4f -> "1.25"
+    value < 1.8f -> "1.5"
+    else -> "2"
 }
 
 @Composable
@@ -257,154 +294,57 @@ private fun Field(label: String, value: String, selected: Boolean, onFocus: () -
 }
 
 @Composable
-private fun LookPage() {
+private fun ImageUrlPage(onDone: () -> Unit) {
     val app = LocalApp.current
     val palette = LocalPalette.current
+    val context = LocalContext.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    var image by remember(settings.backgroundImageUrl) { mutableStateOf(settings.backgroundImageUrl) }
+    var url by remember(settings.backgroundImageUrl) { mutableStateOf(settings.backgroundImageUrl) }
+    var uppercase by remember { mutableStateOf(false) }
+    val clipboard = readClipboard(context)
     Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
-        Text("外观", color = palette.text, fontSize = 26.sp)
-        Text("主题", color = palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("深色", settings.themeMode != "light") { scope.launch { app.settings.update { it.copy(themeMode = "dark") } } }
-            SelectChip("浅色", settings.themeMode == "light") { scope.launch { app.settings.update { it.copy(themeMode = "light") } } }
-        }
-        Text("强调色", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            accents.forEach { (label, hex) ->
-                SelectChip(label, settings.accent.equals(hex, true)) { scope.launch { app.settings.update { it.copy(accent = hex) } } }
+        Text("自定义壁纸", color = palette.text, fontSize = 26.sp)
+        Text("用下面的按键输入图片网址，或在右侧手机页面里粘贴。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+        Text(url.ifBlank { "还没有地址" }, color = palette.accent, modifier = Modifier.padding(bottom = 8.dp))
+        listOf(
+            listOf("http://", "https://", "www."),
+            listOf(".com", ".cn", ".net", ".jpg", ".png", ".webp"),
+        ).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                row.forEach { token -> TvButton(token) { url += token } }
             }
         }
-        Text("背景", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            gradients.forEach { (id, label) ->
-                SelectChip(label, settings.backgroundType != "image" && settings.gradientId == id) {
-                    scope.launch { app.settings.update { it.copy(backgroundType = "gradient", gradientId = id) } }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+            "1234567890".forEach { char -> Keycap(char.toString()) { url += char } }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+            listOf(":", "/", ".", "-", "_", "?", "=", "&", "%").forEach { token ->
+                Keycap(token) { url += token }
+            }
+        }
+        listOf("abcdefg", "hijklmn", "opqrstu", "vwxyz").forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+                row.forEach { char ->
+                    val text = if (uppercase) char.uppercase() else char.toString()
+                    Keycap(text) { url += text }
                 }
             }
         }
-        Text("自定义图片地址", color = palette.muted, modifier = Modifier.padding(top = 16.dp))
-        BasicTextField(
-            value = image,
-            onValueChange = { image = it },
-            textStyle = TextStyle(color = palette.text, fontSize = 16.sp),
-            cursorBrush = SolidColor(palette.accent),
-            modifier = Modifier.padding(top = 8.dp).width(640.dp),
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
+            TvButton(if (uppercase) "小写" else "大写") { uppercase = !uppercase }
+            TvButton("退格") { url = url.dropLast(1) }
+            TvButton("清空") { url = "" }
+            if (!clipboard.isNullOrBlank()) TvButton("粘贴") { url = clipboard }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp)) {
             TvButton("使用这张图", primary = true) {
-                scope.launch { app.settings.update { it.copy(backgroundType = "image", backgroundImageUrl = image.trim()) } }
-            }
-            TvButton("改回渐变") {
-                scope.launch { app.settings.update { it.copy(backgroundType = "gradient", backgroundImageUrl = "") } }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeLayoutPage() {
-    val app = LocalApp.current
-    val palette = LocalPalette.current
-    val settings by app.settings.state.collectAsStateWithLifecycle()
-    val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
-    val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
-        Text("首页布局", color = palette.text, fontSize = 26.sp)
-        Text("海报大小", color = palette.muted, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("small" to "小", "medium" to "中", "large" to "大").forEach { (id, label) ->
-                SelectChip(label, settings.posterSize == id) { scope.launch { app.settings.update { it.copy(posterSize = id) } } }
-            }
-        }
-        Text("默认来源", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("全部", settings.defaultSourceId.isBlank()) {
-                scope.launch { app.settings.update { it.copy(defaultSourceId = "") } }
-            }
-            sources.forEach { source ->
-                SelectChip(source.name, settings.defaultSourceId == source.id) {
-                    scope.launch { app.settings.update { it.copy(defaultSourceId = source.id) } }
+                scope.launch {
+                    app.settings.update { it.withAppearance(backgroundType = "image", backgroundImageUrl = url.trim()) }
+                    onDone()
                 }
             }
-        }
-        Text("首页行", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        settings.homeRows.forEachIndexed { index, row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                Text(row.title, color = palette.text, modifier = Modifier.width(120.dp).padding(top = 10.dp))
-                TvButton(if (row.visible) "显示" else "隐藏") {
-                    scope.launch {
-                        app.settings.update { current ->
-                            current.copy(homeRows = current.homeRows.map { if (it.id == row.id) it.copy(visible = !it.visible) else it })
-                        }
-                    }
-                }
-                TvButton("上移") {
-                    if (index == 0) return@TvButton
-                    scope.launch { app.settings.update { it.copy(homeRows = it.homeRows.move(index, -1)) } }
-                }
-                TvButton("下移") {
-                    scope.launch { app.settings.update { it.copy(homeRows = it.homeRows.move(index, 1)) } }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlayPage() {
-    val app = LocalApp.current
-    val palette = LocalPalette.current
-    val settings by app.settings.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
-        Text("播放", color = palette.text, fontSize = 26.sp)
-        Text("启动页", color = palette.muted, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("点播", settings.startupPage != "live") { scope.launch { app.settings.update { it.copy(startupPage = "vod") } } }
-            SelectChip("直播", settings.startupPage == "live") { scope.launch { app.settings.update { it.copy(startupPage = "live") } } }
-        }
-        Text("搜索超时", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(3, 5, 8, 12, 20).forEach { sec ->
-                SelectChip("${sec}秒", settings.searchTimeoutSec == sec) {
-                    scope.launch { app.settings.update { it.copy(searchTimeoutSec = sec) } }
-                }
-            }
-        }
-        Text("自动选线", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("开", settings.autoLineSelect) { scope.launch { app.settings.update { it.copy(autoLineSelect = true) } } }
-            SelectChip("关", !settings.autoLineSelect) { scope.launch { app.settings.update { it.copy(autoLineSelect = false) } } }
-        }
-        Text("播放器内核", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("VLC", settings.playerEngine != "exo") {
-                scope.launch { app.settings.update { it.copy(playerEngine = "vlc") } }
-            }
-            SelectChip("系统 (ExoPlayer)", settings.playerEngine == "exo") {
-                scope.launch { app.settings.update { it.copy(playerEngine = "exo") } }
-            }
-        }
-        Text("解码", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("硬件", settings.decoder != "software") { scope.launch { app.settings.update { it.copy(decoder = "hardware") } } }
-            SelectChip("软件", settings.decoder == "software") { scope.launch { app.settings.update { it.copy(decoder = "software") } } }
-        }
-        Text("默认倍速", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(0.75f, 1f, 1.25f, 1.5f, 2f).forEach { speed ->
-                SelectChip(if (speed == 1f) "正常" else "${speed}x", settings.defaultSpeed == speed) {
-                    scope.launch { app.settings.update { it.copy(defaultSpeed = speed) } }
-                }
-            }
-        }
-        Text("默认画面", color = palette.muted, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("fit" to "适应", "fill" to "铺满", "zoom" to "放大", "16:9" to "16:9", "4:3" to "4:3").forEach { (id, label) ->
-                SelectChip(label, settings.aspect == id) { scope.launch { app.settings.update { it.copy(aspect = id) } } }
-            }
+            TvButton("返回", onClick = onDone)
         }
     }
 }
@@ -415,35 +355,35 @@ private fun BackupPage() {
     val palette = LocalPalette.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var raw by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("导入会覆盖当前的接口和设置。") }
-    Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        Text("导入与导出", color = palette.text, fontSize = 26.sp)
-        Text(message, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
-        BasicTextField(
-            value = raw,
-            onValueChange = { raw = it },
-            textStyle = TextStyle(color = palette.text, fontSize = 14.sp),
-            cursorBrush = SolidColor(palette.accent),
-            modifier = Modifier.weight(1f).fillMaxSize(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+    var message by remember { mutableStateOf("整份备份会覆盖当前的接口和设置。外观也可以在手机页面里单独改。") }
+    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+        Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
+            Text("数据与备份", color = palette.text, fontSize = 26.sp)
+            Text(message, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
             TvButton("复制备份", primary = true) {
                 scope.launch {
                     val text = app.backup.export()
-                    raw = text
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("简匣备份", text))
-                    message = "备份已复制，也可以在手机页面下载。"
+                    message = "备份已复制。手机页面也可以下载。"
                 }
             }
-            TvButton("粘贴") { raw = readClipboard(context).orEmpty() }
-            TvButton("导入") {
+            val pasted = readClipboard(context)
+            if (!pasted.isNullOrBlank()) {
+                TvButton("导入剪贴板", modifier = Modifier.padding(top = 10.dp)) {
+                    scope.launch {
+                        message = runCatching { app.backup.import(pasted) }.getOrElse { UserFacingError.message(it) }
+                    }
+                }
+            }
+            TvButton("清空搜索记录", modifier = Modifier.padding(top = 10.dp)) {
                 scope.launch {
-                    message = runCatching { app.backup.import(raw) }.getOrElse { UserFacingError.message(it) }
+                    app.settings.update { it.copy(recentSearches = emptyList()) }
+                    message = "最近搜索已清空。接口还在。"
                 }
             }
         }
+        PhoneQrCard(modifier = Modifier.padding(start = 24.dp))
     }
 }
 
@@ -493,13 +433,4 @@ private fun openLicense(context: Context, url: String): String? {
 private fun readClipboard(context: Context): String? {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     return clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString()
-}
-
-private fun <T> List<T>.move(index: Int, delta: Int): List<T> {
-    val target = index + delta
-    if (index !in indices || target !in indices) return this
-    return toMutableList().apply {
-        val item = removeAt(index)
-        add(target, item)
-    }
 }

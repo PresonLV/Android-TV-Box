@@ -1,5 +1,6 @@
 package app.jianxia.tv.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -8,6 +9,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import app.jianxia.core.model.AppSettings
@@ -73,14 +76,30 @@ fun fromNav(value: String): String = runCatching {
 @Composable
 fun JianXiaTheme(settings: AppSettings, content: @Composable () -> Unit) {
     val accent = parseAccent(settings.accent)
-    val palette = if (settings.themeMode == "light") lightPalette(accent, settings.gradientId) else darkPalette(accent, settings.gradientId)
+    val dark = when (settings.themeMode) {
+        "light" -> false
+        "system" -> isSystemInDarkTheme()
+        else -> true
+    }
+    val palette = if (dark) darkPalette(accent, settings.gradientId) else lightPalette(accent, settings.gradientId)
     val scheme = if (palette.dark) {
         darkColorScheme(primary = palette.accent, background = palette.bg, surface = palette.surface, onSurface = palette.text)
     } else {
         lightColorScheme(primary = palette.accent, background = palette.bg, surface = palette.surface, onSurface = palette.text)
     }
+    val density = LocalDensity.current
+    val scale = when (settings.fontScale) {
+        "small" -> 0.92f
+        "large" -> 1.14f
+        "xlarge" -> 1.28f
+        else -> 1f
+    }
     MaterialTheme(colorScheme = scheme) {
-        CompositionLocalProvider(LocalPalette provides palette, content = content)
+        CompositionLocalProvider(
+            LocalPalette provides palette,
+            LocalDensity provides Density(density.density, density.fontScale * scale),
+            content = content,
+        )
     }
 }
 

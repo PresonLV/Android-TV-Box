@@ -11,6 +11,7 @@ import app.jianxia.core.merge.mergeKey
 import app.jianxia.core.merge.mergeVodItems
 import app.jianxia.core.merge.normalizeTitle
 import app.jianxia.core.model.AppSettings
+import app.jianxia.core.model.resetSection
 import app.jianxia.core.model.HomeRowSetting
 import app.jianxia.core.parser.DetectedSource
 import app.jianxia.core.parser.M3uParser
@@ -227,6 +228,14 @@ class MergeRankTest {
         assertEquals("vlc", AppSettings().sanitized().playerEngine)
         assertEquals("exo", AppSettings(playerEngine = "exo").sanitized().playerEngine)
         assertEquals("vlc", AppSettings(playerEngine = "nope").sanitized().playerEngine)
+        val migrated = AppSettings(backgroundType = "gradient", gradientId = "ocean", wallpaperId = "").sanitized()
+        assertEquals("builtin", migrated.backgroundType)
+        assertEquals("ocean", migrated.wallpaperId)
+        assertEquals("system", AppSettings(themeMode = "system").sanitized().themeMode)
+        val reset = migrated.copy(fontScale = "xlarge", wallpaperBlur = 20).resetSection("look").sanitized()
+        assertEquals("medium", reset.fontScale)
+        assertEquals(0, reset.wallpaperBlur)
+        assertEquals(12, app.jianxia.core.model.AppearanceCatalog.wallpapers.size)
         val raw = BackupCodec.encode(
             app.jianxia.core.model.BackupBundle(
                 settings = settings,
