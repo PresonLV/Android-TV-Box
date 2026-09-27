@@ -116,6 +116,7 @@ fun AppRoot() {
                         onPlay = { nav.navigate("player") },
                         onSettings = { nav.navigate("settings/add") },
                         onDouban = { nav.navigate("douban") },
+                        onBrowseSite = { nav.navigate("discover/${navKey(it)}") },
                         onSearch = { query ->
                             app.session.pendingSearch = query
                             nav.navigate("search")
@@ -125,6 +126,18 @@ fun AppRoot() {
                 composable("search") { SearchScreen(onOpen = { nav.navigate("detail/${navKey(it)}") }) }
                 composable("douban") {
                     DoubanScreen(
+                        onOpen = { nav.navigate("detail/${navKey(it)}") },
+                        onSearch = { query ->
+                            app.session.pendingSearch = query
+                            nav.navigate("search")
+                        },
+                        onBack = { nav.popBackStack() },
+                    )
+                }
+                composable("discover/{key}") { back ->
+                    DoubanScreen(
+                        siteKey = fromNav(back.arguments?.getString("key").orEmpty()),
+                        onOpen = { nav.navigate("detail/${navKey(it)}") },
                         onSearch = { query ->
                             app.session.pendingSearch = query
                             nav.navigate("search")

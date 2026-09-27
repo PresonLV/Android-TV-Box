@@ -52,6 +52,7 @@ object MacCmsXmlParser {
             actor = childText("actor"),
             director = childText("director"),
             content = stripHtml(childText("des") ?: childText("content")),
+            score = cleanScore(childText("score") ?: childText("douban_score")),
             lines = disambiguateLineNames(lines),
         )
     }

@@ -7,6 +7,7 @@ import app.jianxia.core.danmaku.DanmakuMode
 import app.jianxia.core.danmaku.DanmakuParse
 import app.jianxia.core.douban.DoubanCard
 import app.jianxia.core.douban.DoubanCatalog
+import app.jianxia.core.douban.DoubanFilter
 import app.jianxia.core.douban.DoubanParse
 import app.jianxia.core.douban.DoubanProxy
 import app.jianxia.core.hls.HlsAdFilter
@@ -88,6 +89,54 @@ class EnhanceTest {
         assertEquals(4, page.comments.single().stars)
         assertTrue(page.hasMore)
         assertNull(DoubanParse.match(listOf(DoubanCard("1", "天气预报", "2020")), "山海灯市", "2024"))
+    }
+
+    @Test
+    fun doubanFilterYearsChartsAndCards() {
+        val years = DoubanFilter.years(2026)
+        assertEquals("2026", years.first().label)
+        assertEquals("2026,2026", years.first().range)
+        assertEquals("2020", years[6].label)
+        assertEquals("10年代", years[7].label)
+        assertEquals("60年代", years.last().label)
+        assertEquals("1960,1969", years.last().range)
+        assertEquals(listOf("豆瓣高分"), DoubanFilter.featured("variety"))
+        assertFalse(DoubanFilter.featured("variety").contains("奥斯卡"))
+        assertTrue(DoubanFilter.featured("movie").containsAll(listOf("高票房", "奥斯卡", "金像奖", "金鸡奖", "漫威", "迪士尼")))
+        assertEquals("中国大陆", DoubanFilter.areas.first { it.first == "内地" }.second)
+        val filtered = DoubanProxy.filterUrl("movie", "", "2026,2026", "中国大陆", "喜剧", "U", 0)
+        assertTrue(filtered.startsWith("https://movie.douban.com/j/new_search_subjects?"))
+        assertTrue(filtered.contains("sort=U"))
+        assertTrue(filtered.contains("genres="))
+        assertTrue(filtered.contains("countries="))
+        assertTrue(filtered.contains("year_range="))
+        assertFalse(filtered.contains("内地"))
+        val curated = DoubanProxy.filterUrl("movie", "奥斯卡", "", "", "", "S", 0)
+        assertTrue(curated.startsWith("https://movie.douban.com/j/search_subjects?"))
+        assertTrue(curated.contains("sort=rank"))
+        val combined = DoubanProxy.filterUrl("movie", "豆瓣高分", "", "", "枪战", "R", 20)
+        assertTrue(combined.contains("sort=R"))
+        assertTrue(combined.contains("tags="))
+        assertFalse(combined.contains("genres="))
+        assertTrue(DoubanProxy.chartUrl("movie_top250", 0, 20).contains("/subject_collection/movie_top250/items"))
+        assertTrue(DoubanProxy.comingUrl("tv", 0, 20).contains("/tv/coming_soon"))
+        val searched = DoubanParse.cards(
+            """{"data":[{"id":"36090457","title":"头脑特工队2","rate":"8.4","cover":"https://img3.doubanio.com/a.jpg","casts":["玛雅·霍克","艾米·波勒"],"directors":["凯尔西·曼"]}]}""",
+        )
+        assertEquals("8.4", searched.single().rating)
+        assertEquals("玛雅·霍克 艾米·波勒", searched.single().subtitle)
+        val chart = DoubanParse.cards(
+            """{"subject_collection_items":[{"id":"1292052","title":"肖申克的救赎","card_subtitle":"1994 / 美国 / 剧情","rating":{"value":9.7},"pic":{"normal":"https://img1.doubanio.com/p.jpg"}}]}""",
+        )
+        assertEquals("1994", chart.single().year)
+        assertEquals("9.7", chart.single().rating)
+        assertEquals("1994 / 美国 / 剧情", chart.single().subtitle)
+        assertEquals("https://img1.doubanio.com/p.jpg", chart.single().poster)
+        val soon = DoubanParse.cards(
+            """{"subjects":[{"id":"1","title":"野兽之心","card_subtitle":"2026 / 美国","rating":{"value":0},"cover_url":"https://img3.doubanio.com/c.jpg"}]}""",
+        )
+        assertEquals("", soon.single().rating)
+        assertEquals("2026 / 美国", soon.single().subtitle)
     }
 
     @Test

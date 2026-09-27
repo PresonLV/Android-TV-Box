@@ -323,6 +323,32 @@ class MergeRankTest {
     }
 
     @Test
+    fun tvboxFiltersAttachToTheNamedSite() {
+        val config = TvBoxConfigParser.parse(
+            """
+            {
+              "sites": [
+                {"key": "cms", "name": "苹果", "type": 1, "api": "https://example.test/api.php/provide/vod"}
+              ],
+              "filters": {
+                "cms": {
+                  "1": [
+                    {"key": "area", "name": "地区", "value": [{"n": "全部", "v": ""}, {"n": "大陆", "v": "大陆"}]},
+                    {"key": "year", "name": "年份", "value": [{"n": "2024", "v": "2024"}]}
+                  ]
+                },
+                "missing": {"1": [{"key": "class", "name": "类型", "value": [{"n": "喜剧", "v": "喜剧"}]}]}
+              }
+            }
+            """.trimIndent(),
+        )
+        val groups = config.filters["cms"].orEmpty()["1"].orEmpty()
+        assertEquals(listOf("area", "year"), groups.map { it.key })
+        assertEquals(listOf("大陆"), groups.first().choices.map { it.value })
+        assertEquals("喜剧", config.filters["missing"].orEmpty()["1"].orEmpty().single().choices.single().name)
+    }
+
+    @Test
     fun pinyinCandidatesPreferExactSyllable() {
         val ime = PinyinIme.loadDefault()
         assertEquals("山", ime.candidates("shan").first())

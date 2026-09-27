@@ -97,6 +97,7 @@ object TvBoxConfigParser {
             parses = parses,
             wallpaper = root.text("wallpaper"),
             spider = rootSpider,
+            filters = SiteFilters.parseRoot(root["filters"]),
         ).resolve(baseUrl)
     }
 }

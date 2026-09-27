@@ -45,6 +45,7 @@ object MacCmsJsonParser {
                 actor = obj.text("vod_actor", "actor"),
                 director = obj.text("vod_director", "director"),
                 content = stripHtml(obj.text("vod_content", "vod_blurb", "content")),
+                score = cleanScore(obj.text("vod_douban_score", "vod_score")),
                 lines = parsePlayInfo(obj.text("vod_play_from"), obj.text("vod_play_url")),
             )
         }

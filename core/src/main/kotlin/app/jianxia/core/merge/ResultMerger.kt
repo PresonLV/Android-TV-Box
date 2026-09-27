@@ -25,6 +25,7 @@ fun mergeVodItems(items: List<VodItem>): List<MergedVod> {
             actor = pick { it.actor },
             director = pick { it.director },
             content = pick { it.content },
+            score = pick { it.score },
             variants = group,
         )
     }

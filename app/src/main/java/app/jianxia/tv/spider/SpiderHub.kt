@@ -13,6 +13,7 @@ import app.jianxia.core.spider.SpiderPlay
 import app.jianxia.tv.data.net.NetClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -58,9 +59,9 @@ class SpiderHub(
         if (engine(def) == Engine.JAR) jars.home(def) else script(def).home(def, timeoutMs())
     }
 
-    fun category(def: VodSiteDef, tid: String, page: Int): VodPage = call {
-        if (engine(def) == Engine.JAR) jars.category(def, tid, page, emptyMap())
-        else script(def).category(def, tid, page, "{}", timeoutMs())
+    fun category(def: VodSiteDef, tid: String, page: Int, extend: Map<String, String> = emptyMap()): VodPage = call {
+        if (engine(def) == Engine.JAR) jars.category(def, tid, page, extend)
+        else script(def).category(def, tid, page, extendJson(extend), timeoutMs())
     }
 
     fun detail(def: VodSiteDef, id: String): VodItem? = call {
@@ -90,6 +91,9 @@ class SpiderHub(
             ProxyPayload(500, "text/plain", (error.message ?: "error").toByteArray())
         }
     }
+
+    private fun extendJson(extend: Map<String, String>): String =
+        JsonObject(extend.mapValues { JsonPrimitive(it.value) }).toString()
 
     private fun payload(value: Any?): ProxyPayload {
         if (value is String && value.trim().startsWith("[")) {

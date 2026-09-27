@@ -19,7 +19,9 @@ import app.jianxia.core.model.BackupSource
 import app.jianxia.core.model.EpgGuide
 import app.jianxia.core.model.LiveChannel
 import app.jianxia.core.model.MergedVod
+import app.jianxia.core.model.FilterGroup
 import app.jianxia.core.model.ParseDef
+import app.jianxia.core.model.VodClass
 import app.jianxia.core.model.HomeSiteSummary
 import app.jianxia.core.model.SiteKind
 import app.jianxia.core.model.SiteReport
@@ -431,6 +433,16 @@ data class SearchCatalog(
     val message: String?,
 )
 
+data class SiteBrowse(
+    val name: String = "",
+    val classes: List<VodClass> = emptyList(),
+    val filters: Map<String, List<FilterGroup>> = emptyMap(),
+    val items: List<MergedVod> = emptyList(),
+    val page: Int = 1,
+    val pageCount: Int = 1,
+    val message: String? = null,
+)
+
 class CatalogStore {
     private val map = object : LinkedHashMap<String, MergedVod>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, MergedVod>?) = size > 400
@@ -486,7 +498,10 @@ class CatalogRepository(
                             } else {
                                 site
                             }
-                            val stored = active.copy(key = "${source.id}:${active.key}")
+                            val stored = active.copy(
+                                key = "${source.id}:${active.key}",
+                                filters = config.filters[site.key].orEmpty(),
+                            )
                             sites += stored
                             val spider = site.unsupportedReason?.contains("爬虫") == true
                             when {
@@ -626,6 +641,39 @@ class CatalogRepository(
             else -> null
         }
         return HomeCatalog(rows, expanded.unsupported, failed, true, message, reports).also { lastHome = it }
+    }
+
+    suspend fun browseSite(
+        siteKey: String,
+        page: Int,
+        typeId: String?,
+        extend: Map<String, String>,
+    ): SiteBrowse = withContext(Dispatchers.IO) {
+        val site = expand().sites.firstOrNull { it.key == siteKey }
+            ?: return@withContext SiteBrowse(message = "找不到这个站点")
+        if (site.kind == SiteKind.UNSUPPORTED || site.unsupportedReason != null) {
+            return@withContext SiteBrowse(name = site.name, message = site.unsupportedReason ?: "这个站点现在不能筛选")
+        }
+        val loaded = runCatching { registry.create(site).list(page, typeId?.ifBlank { null }, extend) }
+        loaded.fold(
+            onSuccess = { vod ->
+                val merged = mergeVodItems(vod.items)
+                store.putAll(merged)
+                val filters = site.filters.toMutableMap()
+                vod.filters.forEach { (key, groups) -> if (groups.isNotEmpty()) filters[key] = groups }
+                SiteBrowse(
+                    name = site.name,
+                    classes = vod.classes,
+                    filters = filters,
+                    items = merged,
+                    page = vod.page,
+                    pageCount = vod.pageCount,
+                )
+            },
+            onFailure = { error ->
+                SiteBrowse(name = site.name, message = UserFacingError.message(error))
+            },
+        )
     }
 
     suspend fun search(settings: AppSettings, query: String): SearchCatalog {

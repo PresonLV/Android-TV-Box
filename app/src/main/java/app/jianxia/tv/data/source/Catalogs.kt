@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 
 interface VodCatalog {
     val def: VodSiteDef
-    suspend fun list(page: Int, typeId: String?): VodPage
+    suspend fun list(page: Int, typeId: String?, extend: Map<String, String> = emptyMap()): VodPage
     suspend fun search(keyword: String): VodPage
     suspend fun detail(id: String): VodItem?
 }
@@ -51,8 +51,8 @@ class SpiderCatalog(
     override val def: VodSiteDef,
     private val hub: SpiderHub,
 ) : VodCatalog {
-    override suspend fun list(page: Int, typeId: String?): VodPage = guard {
-        if (typeId.isNullOrBlank()) hub.home(def) else hub.category(def, typeId, page)
+    override suspend fun list(page: Int, typeId: String?, extend: Map<String, String>): VodPage = guard {
+        if (typeId.isNullOrBlank()) hub.home(def) else hub.category(def, typeId, page, extend)
     }
 
     override suspend fun search(keyword: String): VodPage = guard { hub.search(def, keyword) }
@@ -79,7 +79,7 @@ class MacCmsCatalogFactory : CatalogFactory {
 }
 
 class UnsupportedVodCatalog(override val def: VodSiteDef) : VodCatalog {
-    override suspend fun list(page: Int, typeId: String?) = VodPage.empty()
+    override suspend fun list(page: Int, typeId: String?, extend: Map<String, String>) = VodPage.empty()
     override suspend fun search(keyword: String) = VodPage.empty()
     override suspend fun detail(id: String): VodItem? = null
 }
@@ -88,9 +88,12 @@ class MacCmsCatalog(
     override val def: VodSiteDef,
     private val http: NetClient,
 ) : VodCatalog {
-    override suspend fun list(page: Int, typeId: String?): VodPage {
+    override suspend fun list(page: Int, typeId: String?, extend: Map<String, String>): VodPage {
         val params = linkedMapOf("pg" to page.toString())
         if (!typeId.isNullOrBlank()) params["t"] = typeId
+        extend.forEach { (key, value) ->
+            if (key.isNotBlank() && value.isNotBlank() && key !in RESERVED) params[key] = value
+        }
         return browse(params)
     }
 
@@ -149,5 +152,9 @@ class MacCmsCatalog(
                 it.copy(userAgent = def.userAgent, referer = def.referer, headers = def.headers)
             },
         )
+    }
+
+    private companion object {
+        val RESERVED = setOf("ac", "pg", "t", "ids", "wd")
     }
 }

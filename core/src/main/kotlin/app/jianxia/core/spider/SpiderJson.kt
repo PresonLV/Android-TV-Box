@@ -8,7 +8,9 @@ import app.jianxia.core.model.VodClass
 import app.jianxia.core.model.VodItem
 import app.jianxia.core.model.VodPage
 import app.jianxia.core.model.VodSiteDef
+import app.jianxia.core.parser.SiteFilters
 import app.jianxia.core.parser.asText
+import app.jianxia.core.parser.cleanScore
 import app.jianxia.core.parser.text
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -41,6 +43,7 @@ object SpiderJson {
             total = root.text("total")?.toIntOrNull() ?: items.size,
             classes = classes,
             items = items,
+            filters = SiteFilters.parseAttached(root["filters"] ?: root["filter"]),
         )
     }
 
@@ -77,6 +80,7 @@ object SpiderJson {
             classes = first.classes.ifEmpty { second.classes },
             items = first.items + extra,
             total = (first.items + extra).size,
+            filters = second.filters + first.filters,
         )
     }
 
@@ -102,6 +106,7 @@ object SpiderJson {
                 actor = obj.text("vod_actor"),
                 director = obj.text("vod_director"),
                 content = obj.text("vod_content"),
+                score = cleanScore(obj.text("vod_douban_score", "vod_score")),
                 lines = lines(obj.text("vod_play_from").orEmpty(), obj.text("vod_play_url").orEmpty()),
                 userAgent = site.userAgent,
                 referer = site.referer,

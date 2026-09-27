@@ -124,6 +124,7 @@ fun PosterCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     progress: Float? = null,
+    rating: String? = null,
 ) {
     val palette = LocalPalette.current
     Surface(
@@ -143,7 +144,23 @@ fun PosterCard(
         ),
     ) {
         Column {
-            Poster(imageUrl, title, Modifier.fillMaxWidth().height(height))
+            Box {
+                Poster(imageUrl, title, Modifier.fillMaxWidth().height(height))
+                if (!rating.isNullOrBlank()) {
+                    Text(
+                        rating,
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.Black.copy(alpha = 0.62f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
             Text(
                 title,
                 modifier = Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp),

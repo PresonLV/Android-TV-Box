@@ -58,6 +58,12 @@ class SpiderTest {
         )
         assertEquals("电影", page.classes.single().name)
         assertEquals("山海", page.items.single().title)
+        val filtered = SpiderJson.page(
+            """{"class":[{"type_id":"1","type_name":"电影"}],"filter":{"1":[{"key":"class","name":"类型","value":[{"n":"全部","v":""},{"n":"喜剧","v":"喜剧"}]}]},"list":[{"vod_id":"9","vod_name":"山海","vod_score":"8.6"}]}""",
+            site,
+        )
+        assertEquals("喜剧", filtered.filters["1"].orEmpty().single().choices.single().name)
+        assertEquals("8.6", filtered.items.single().score)
         val skipped = SpiderJson.page("""{"list":[{"vod_id":"no_data","vod_name":"无数据"}]}""", site)
         assertTrue(skipped.items.isEmpty())
         val detail = SpiderJson.detail(

@@ -1,16 +1,24 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package app.jianxia.tv.ui.douban
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.itemsIndexed as rowItemsIndexed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,13 +27,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.jianxia.core.douban.DoubanCard
-import app.jianxia.core.douban.DoubanCatalog
 import app.jianxia.core.douban.DoubanComment
+import app.jianxia.core.douban.DoubanFilter
+import app.jianxia.core.douban.DoubanParse
+import app.jianxia.core.model.FilterGroup
+import app.jianxia.core.model.MergedVod
+import app.jianxia.core.model.VodClass
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.PosterCard
@@ -33,78 +58,368 @@ import app.jianxia.tv.ui.ScreenPadding
 import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
 import app.jianxia.tv.ui.posterSize
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import java.util.Calendar
+
+private data class PosterHit(
+    val key: String,
+    val title: String,
+    val image: String?,
+    val rating: String,
+    val subtitle: String,
+    val fromDouban: Boolean,
+)
 
 @Composable
-fun DoubanScreen(onSearch: (String) -> Unit, onBack: () -> Unit) {
+fun DoubanScreen(
+    onOpen: (String) -> Unit,
+    onSearch: (String) -> Unit,
+    onBack: () -> Unit,
+    siteKey: String? = null,
+) {
     val palette = LocalPalette.current
     val app = LocalApp.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
-    var kind by remember { mutableStateOf("movie") }
-    var tag by remember { mutableStateOf("热门") }
-    var start by remember { mutableIntStateOf(0) }
-    var loading by remember { mutableStateOf(true) }
-    var cards by remember { mutableStateOf<List<DoubanCard>>(emptyList()) }
-    var note by remember { mutableStateOf("") }
-    val shelf = DoubanCatalog.shelf(kind)
-    LaunchedEffect(kind, tag, start, settings.doubanEnabled, settings.doubanDataProxy, settings.doubanDataProxyUrl) {
-        if (!shelf.tags.contains(tag)) return@LaunchedEffect
-        loading = true
-        val page = runCatching { app.douban.browse(settings, kind, tag, start) }.getOrDefault(emptyList())
-        cards = page
-        note = when {
-            !settings.doubanEnabled -> "豆瓣已关闭"
-            page.isEmpty() -> "豆瓣暂时不可用，已保留界面。可以稍后再试。"
-            else -> "选中一部后，会用已添加的接口搜索这个名字。"
-        }
-        loading = false
+    val scope = rememberCoroutineScope()
+    val siteMode = !siteKey.isNullOrBlank()
+    var mode by remember(siteKey) { mutableStateOf("filter") }
+    var kind by remember(siteKey) { mutableStateOf("movie") }
+    var featured by remember(siteKey) { mutableStateOf("") }
+    var year by remember(siteKey) { mutableStateOf("") }
+    var area by remember(siteKey) { mutableStateOf("") }
+    var genre by remember(siteKey) { mutableStateOf("") }
+    var sort by remember(siteKey) { mutableStateOf("U") }
+    var chartId by remember(siteKey) { mutableStateOf(DoubanFilter.charts.first().id) }
+    var soonKind by remember(siteKey) { mutableStateOf("movie") }
+    var typeId by remember(siteKey) { mutableStateOf("") }
+    var picked by remember(siteKey) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var classes by remember(siteKey) { mutableStateOf<List<VodClass>>(emptyList()) }
+    var siteFilters by remember(siteKey) { mutableStateOf<Map<String, List<FilterGroup>>>(emptyMap()) }
+    var siteName by remember(siteKey) { mutableStateOf("") }
+    var collapsed by remember(siteKey) { mutableStateOf(false) }
+    var expandFocus by remember(siteKey) { mutableStateOf(false) }
+    var focusedIndex by remember(siteKey) { mutableIntStateOf(-1) }
+    var page by remember(siteKey) { mutableIntStateOf(0) }
+    var loading by remember(siteKey) { mutableStateOf(false) }
+    var loadingMore by remember(siteKey) { mutableStateOf(false) }
+    var hasMore by remember(siteKey) { mutableStateOf(false) }
+    var note by remember(siteKey) { mutableStateOf("") }
+    var opening by remember(siteKey) { mutableStateOf(false) }
+    var items by remember(siteKey) { mutableStateOf<List<PosterHit>>(emptyList()) }
+    val years = remember { DoubanFilter.years(Calendar.getInstance().get(Calendar.YEAR)) }
+    val lastRow = remember(siteKey) { FocusRequester() }
+    val gridState = rememberLazyGridState()
+    val featuredTags = DoubanFilter.featured(kind)
+    val genreTags = DoubanFilter.genres(kind)
+    val activeGroups = siteFilters[typeId].orEmpty().ifEmpty {
+        if (typeId.isBlank()) siteFilters[""].orEmpty() else emptyList()
     }
-    BackHandler(onBack = onBack)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
-        Text("豆瓣", color = palette.text, fontSize = 28.sp)
-        Text("分类来自豆瓣公开列表。选中一部后，用已添加的接口搜索，不播放豆瓣上的片源。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SelectChip("电影", kind == "movie") { kind = "movie"; tag = "热门"; start = 0 }
-            SelectChip("电视剧", kind == "tv") { kind = "tv"; tag = "热门"; start = 0 }
+    val signature = if (siteMode) {
+        "site|$siteKey|$typeId|${picked.entries.sortedBy { it.key }.joinToString { "${it.key}=${it.value}" }}|${settings.searchTimeoutSec}"
+    } else {
+        when (mode) {
+            "chart" -> "chart|$chartId|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
+            "soon" -> "soon|$soonKind|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
+            else -> "filter|$kind|$featured|$year|$area|$genre|$sort|${settings.doubanEnabled}|${settings.doubanDataProxy}|${settings.doubanDataProxyUrl}"
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 10.dp, bottom = 12.dp)) {
-            shelf.tags.take(8).forEach { item ->
-                SelectChip(item, item == tag) { tag = item; start = 0 }
-            }
-        }
-        if (shelf.tags.size > 8) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                shelf.tags.drop(8).forEach { item ->
-                    SelectChip(item, item == tag) { tag = item; start = 0 }
+    }
+    var debounced by remember(siteKey) { mutableStateOf(signature) }
+    LaunchedEffect(signature) {
+        if (signature != debounced) delay(340)
+        page = 0
+        debounced = signature
+    }
+    LaunchedEffect(debounced, page, siteKey) {
+        val replace = page == 0
+        if (replace) loading = true else loadingMore = true
+        val start = page * 20
+        val loaded = if (siteMode) {
+            val result = runCatching {
+                app.catalog.browseSite(siteKey.orEmpty(), page + 1, typeId, picked.filterValues { it.isNotBlank() })
+            }.getOrNull()
+            if (result == null) {
+                note = "这个站点暂时不能筛选"
+                emptyList()
+            } else {
+                if (result.name.isNotBlank()) siteName = result.name
+                if (result.classes.isNotEmpty()) classes = result.classes
+                if (result.filters.isNotEmpty()) siteFilters = result.filters
+                note = result.message ?: if (result.items.isEmpty() && replace) "没有符合的节目" else "选中海报后直接打开这一部。"
+                hasMore = when {
+                    result.pageCount > 1 -> page + 1 < result.pageCount
+                    result.items.size >= 20 -> true
+                    else -> false
                 }
+                result.items.map { it.toPoster() }
+            }
+        } else if (!settings.doubanEnabled) {
+            note = "豆瓣已关闭"
+            hasMore = false
+            emptyList()
+        } else {
+            val cards = runCatching {
+                when (mode) {
+                    "chart" -> app.douban.chart(settings, chartId, start)
+                    "soon" -> app.douban.coming(settings, soonKind, start)
+                    else -> app.douban.filter(settings, kind, featured, year, area, genre, sort, start)
+                }
+            }.getOrDefault(emptyList())
+            hasMore = cards.size >= 20
+            note = when {
+                cards.isEmpty() && replace -> "没有符合的条目。可以换一组条件，或稍后再试。"
+                else -> "选中海报后，会在已添加的接口里搜索并打开。不播放豆瓣上的片源。"
+            }
+            cards.map { it.toPoster() }
+        }
+        items = if (replace) loaded else items + loaded.filter { hit -> items.none { it.key == hit.key } }
+        if (!replace && loaded.isEmpty()) hasMore = false
+        loading = false
+        loadingMore = false
+    }
+    LaunchedEffect(expandFocus, collapsed) {
+        if (expandFocus && !collapsed) {
+            runCatching { lastRow.requestFocus() }
+            expandFocus = false
+        }
+    }
+    BackHandler {
+        if (!siteMode && mode != "filter") mode = "filter" else onBack()
+    }
+    val summary = if (siteMode) {
+        val bits = mutableListOf(siteName.ifBlank { "站点" })
+        classes.firstOrNull { it.id == typeId }?.name?.let { bits += it }
+        activeGroups.forEach { group ->
+            group.choices.firstOrNull { it.value == picked[group.key] }?.name?.let { bits += it }
+        }
+        bits.joinToString(" · ")
+    } else when (mode) {
+        "chart" -> DoubanFilter.charts.firstOrNull { it.id == chartId }?.label.orEmpty()
+        "soon" -> "新片预告 · ${if (soonKind == "tv") "电视剧" else "电影"}"
+        else -> listOfNotNull(
+            DoubanFilter.kinds.firstOrNull { it.first == kind }?.second,
+            featured.takeIf { it.isNotBlank() },
+            years.firstOrNull { it.range == year }?.label,
+            DoubanFilter.areas.firstOrNull { it.second == area }?.first,
+            genre.takeIf { it.isNotBlank() },
+            DoubanFilter.sorts.firstOrNull { it.first == sort }?.second,
+        ).joinToString(" · ")
+    }
+    Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
+        if (!siteMode) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SelectChip("风云榜", mode == "chart") { mode = "chart"; collapsed = false }
+                SelectChip("新片预告", mode == "soon") { mode = "soon"; collapsed = false }
+            }
+            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
+        } else {
+            Text(siteName.ifBlank { "站点筛选" }, color = palette.text, fontSize = 22.sp)
+            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+        }
+        if (collapsed) {
+            Text(summary, color = palette.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 8.dp))
+        } else if (siteMode) {
+            if (classes.isNotEmpty()) {
+                ChipRow(
+                    label = "分类",
+                    options = listOf("" to "全部") + classes.map { it.id to it.name },
+                    selected = typeId,
+                    restore = activeGroups.isEmpty(),
+                    requester = if (activeGroups.isEmpty()) lastRow else null,
+                    onSelect = {
+                        typeId = it
+                        picked = emptyMap()
+                    },
+                )
+            }
+            activeGroups.forEachIndexed { index, group ->
+                val last = index == activeGroups.lastIndex
+                ChipRow(
+                    label = group.name,
+                    options = listOf("" to "全部") + group.choices.map { it.value to it.name },
+                    selected = picked[group.key].orEmpty(),
+                    restore = true,
+                    requester = if (last) lastRow else null,
+                    onSelect = { value ->
+                        picked = if (value.isBlank()) picked - group.key else picked + (group.key to value)
+                    },
+                )
+            }
+        } else when (mode) {
+            "chart" -> ChipRow(
+                label = "榜单",
+                options = DoubanFilter.charts.map { it.id to it.label },
+                selected = chartId,
+                restore = true,
+                requester = lastRow,
+                onSelect = { chartId = it },
+            )
+            "soon" -> ChipRow(
+                label = "类型",
+                options = DoubanFilter.soonKinds,
+                selected = soonKind,
+                restore = true,
+                requester = lastRow,
+                onSelect = { soonKind = it },
+            )
+            else -> {
+                ChipRow("分类", DoubanFilter.kinds, kind, restore = true, onSelect = {
+                    kind = it
+                    if (featured !in DoubanFilter.featured(it)) featured = ""
+                    if (genre !in DoubanFilter.genres(it)) genre = ""
+                })
+                ChipRow("精选标签", listOf("" to "全部") + featuredTags.map { it to it }, featured, restore = true, onSelect = { featured = it })
+                ChipRow("年代", listOf("" to "全部") + years.map { it.range to it.label }, year, restore = true, onSelect = { year = it })
+                ChipRow("地区", listOf("" to "全部") + DoubanFilter.areas.map { it.second to it.first }, area, restore = true, onSelect = { area = it })
+                ChipRow("类型", listOf("" to "全部") + genreTags.map { it to it }, genre, restore = true, onSelect = { genre = it })
+                ChipRow("排序", DoubanFilter.sorts, sort, restore = true, requester = lastRow, onSelect = { sort = it })
             }
         }
-        Text(note, color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
-        if (loading) {
-            CircularProgressIndicator(color = palette.accent)
-        } else {
-            val (w, h) = posterSize(settings.posterSize)
-            cards.chunked(6).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
-                    row.forEach { card ->
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            if (loading && items.isEmpty()) {
+                CircularProgressIndicator(color = palette.accent, modifier = Modifier.align(Alignment.Center))
+            } else if (items.isEmpty()) {
+                Text(note.ifBlank { "没有符合的条目" }, color = palette.muted, modifier = Modifier.align(Alignment.Center))
+            } else {
+                val (posterW, posterH) = posterSize(settings.posterSize)
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(posterW + 28.dp),
+                    state = gridState,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp),
+                    modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                        val canExpand = !siteMode || classes.isNotEmpty() || activeGroups.isNotEmpty()
+                        if (!canExpand || !collapsed || event.type != KeyEventType.KeyDown || event.key != Key.DirectionUp) {
+                            return@onPreviewKeyEvent false
+                        }
+                        val info = gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == focusedIndex }
+                        val top = gridState.layoutInfo.visibleItemsInfo.minOfOrNull { it.offset.y }
+                        if (focusedIndex >= 0 && (info == null || info.offset.y == top)) {
+                            collapsed = false
+                            expandFocus = true
+                            true
+                        } else {
+                            false
+                        }
+                    },
+                ) {
+                    gridItemsIndexed(items, key = { _, hit -> hit.key }) { index, hit ->
                         PosterCard(
-                            title = card.title,
-                            imageUrl = card.poster,
-                            subtitle = listOfNotNull(card.rating.takeIf { it.isNotBlank() }?.let { "豆瓣 $it" }, card.year.takeIf { it.isNotBlank() }).joinToString(" · "),
-                            width = w,
-                            height = h,
-                            onClick = { onSearch(card.title) },
+                            title = hit.title,
+                            imageUrl = hit.image,
+                            subtitle = hit.subtitle,
+                            width = posterW,
+                            height = posterH,
+                            rating = hit.rating,
+                            modifier = Modifier.onFocusChanged { state ->
+                                if (state.isFocused) {
+                                    focusedIndex = index
+                                    collapsed = true
+                                    if (index >= items.lastIndex && hasMore && !loading && !loadingMore && signature == debounced) {
+                                        loadingMore = true
+                                        page += 1
+                                    }
+                                }
+                            },
+                            onClick = {
+                                if (opening) return@PosterCard
+                                if (!hit.fromDouban) {
+                                    onOpen(hit.key)
+                                } else {
+                                    scope.launch {
+                                        opening = true
+                                        val found = runCatching { app.catalog.search(settings, hit.title) }.getOrNull()
+                                        val hitItem = found?.items?.bestTitle(hit.title)
+                                        if (hitItem != null) onOpen(hitItem.key) else onSearch(hit.title)
+                                        opening = false
+                                    }
+                                }
+                            },
                         )
                     }
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                if (start > 0) TvButton("上一页") { start = (start - 20).coerceAtLeast(0) }
-                if (cards.size >= 20) TvButton("下一页") { start += 20 }
-                TvButton("返回", onClick = onBack)
+                if (loading || opening) {
+                    CircularProgressIndicator(color = palette.accent, modifier = Modifier.align(Alignment.TopEnd).padding(8.dp))
+                }
             }
         }
     }
+}
+
+@Composable
+private fun ChipRow(
+    label: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    restore: Boolean,
+    requester: FocusRequester? = null,
+    onSelect: (String) -> Unit,
+) {
+    val palette = LocalPalette.current
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        Text(
+            label,
+            color = palette.muted,
+            fontSize = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.width(88.dp),
+        )
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f).then(if (restore) Modifier.focusRestorer() else Modifier),
+        ) {
+            rowItemsIndexed(options, key = { index, option -> "$index:${option.first}:${option.second}" }) { _, option ->
+                val (value, name) = option
+                val on = value == selected
+                SelectChip(
+                    text = name,
+                    selected = on,
+                    modifier = if (requester != null && on) Modifier.focusRequester(requester) else Modifier,
+                    onClick = { onSelect(value) },
+                )
+            }
+        }
+    }
+}
+
+private fun DoubanCard.toPoster(): PosterHit = PosterHit(
+    key = "douban:$id",
+    title = title,
+    image = poster,
+    rating = rating,
+    subtitle = subtitle.ifBlank { year },
+    fromDouban = true,
+)
+
+private fun MergedVod.toPoster(): PosterHit {
+    val line = listOfNotNull(
+        actor?.takeIf { it.isNotBlank() },
+        content?.trim()?.replace(Regex("\\s+"), " ")?.takeIf { it.isNotBlank() },
+        remarks?.takeIf { it.isNotBlank() },
+    ).firstOrNull().orEmpty()
+    return PosterHit(
+        key = key,
+        title = title,
+        image = pic,
+        rating = score.orEmpty(),
+        subtitle = line,
+        fromDouban = false,
+    )
+}
+
+private fun List<MergedVod>.bestTitle(title: String): MergedVod? {
+    val want = DoubanParse.normalize(title)
+    if (want.isEmpty()) return null
+    return firstOrNull { DoubanParse.normalize(it.title) == want }
+        ?: firstOrNull {
+            val name = DoubanParse.normalize(it.title)
+            name.contains(want) || want.contains(name)
+        }
 }
 
 @Composable
@@ -126,7 +441,7 @@ fun DoubanHomeRows(onOpenPage: () -> Unit, onSearch: (String) -> Unit) {
     if (!settings.doubanEnabled) return
     Column(Modifier.padding(top = 8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 28.dp, bottom = 8.dp)) {
-            TvButton("豆瓣分类", primary = true, onClick = onOpenPage)
+            TvButton("筛选", primary = true, onClick = onOpenPage)
         }
         DoubanStrip("豆瓣电影 · 热门", movie, onSearch)
         DoubanStrip("豆瓣剧集 · 热门", tv, onSearch)

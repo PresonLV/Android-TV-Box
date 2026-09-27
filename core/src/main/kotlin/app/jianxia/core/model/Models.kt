@@ -33,6 +33,7 @@ data class VodSiteDef(
     val spiderMode: SpiderMode? = null,
     val spiderExt: String = "",
     val spiderJar: String = "",
+    val filters: Map<String, List<FilterGroup>> = emptyMap(),
 )
 
 data class LiveSourceDef(
@@ -53,12 +54,19 @@ data class ParseDef(
     val supported: Boolean get() = type == 0 && url.isNotBlank()
 }
 
+@Serializable
+data class FilterChoice(val name: String, val value: String)
+
+@Serializable
+data class FilterGroup(val key: String, val name: String, val choices: List<FilterChoice>)
+
 data class TvBoxConfig(
     val sites: List<VodSiteDef>,
     val lives: List<LiveSourceDef>,
     val parses: List<ParseDef>,
     val wallpaper: String? = null,
     val spider: String = "",
+    val filters: Map<String, Map<String, List<FilterGroup>>> = emptyMap(),
 )
 
 @Serializable
@@ -89,6 +97,7 @@ data class VodItem(
     val actor: String? = null,
     val director: String? = null,
     val content: String? = null,
+    val score: String? = null,
     val lines: List<PlayLine> = emptyList(),
     val userAgent: String = "",
     val referer: String = "",
@@ -110,6 +119,7 @@ data class VodPage(
     val total: Int = 0,
     val classes: List<VodClass> = emptyList(),
     val items: List<VodItem> = emptyList(),
+    val filters: Map<String, List<FilterGroup>> = emptyMap(),
 ) {
     companion object {
         fun empty() = VodPage()
@@ -128,6 +138,7 @@ data class MergedVod(
     val actor: String? = null,
     val director: String? = null,
     val content: String? = null,
+    val score: String? = null,
     val variants: List<VodItem> = emptyList(),
 )
 

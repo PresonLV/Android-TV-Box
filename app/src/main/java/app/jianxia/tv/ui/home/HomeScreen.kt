@@ -73,7 +73,14 @@ class HomeViewModel(private val app: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> Unit, onDouban: () -> Unit, onSearch: (String) -> Unit) {
+fun HomeScreen(
+    onOpen: (String) -> Unit,
+    onPlay: () -> Unit,
+    onSettings: () -> Unit,
+    onDouban: () -> Unit,
+    onSearch: (String) -> Unit,
+    onBrowseSite: (String) -> Unit,
+) {
     val app = LocalApp.current
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
@@ -88,7 +95,7 @@ fun HomeScreen(onOpen: (String) -> Unit, onPlay: () -> Unit, onSettings: () -> U
     val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}:${it.kind}:${it.note}" }
     LaunchedEffect(fingerprint, settings.defaultSourceId, settings.searchTimeoutSec) { vm.load() }
     if (showSites) {
-        SiteStatusPage(state.catalog?.reports.orEmpty(), state.catalog?.message) { showSites = false }
+        SiteStatusPage(state.catalog?.reports.orEmpty(), state.catalog?.message, onBrowseSite) { showSites = false }
         return
     }
     val noTitles = state.catalog?.rows?.values?.none { it.isNotEmpty() } != false
@@ -227,7 +234,12 @@ private fun BoxCenter() {
 private fun meta(item: MergedVod): String = listOfNotNull(item.year, item.remarks, item.typeName).joinToString(" · ")
 
 @Composable
-private fun SiteStatusPage(reports: List<SiteReport>, summary: String?, onBack: () -> Unit) {
+private fun SiteStatusPage(
+    reports: List<SiteReport>,
+    summary: String?,
+    onBrowse: (String) -> Unit,
+    onBack: () -> Unit,
+) {
     val palette = LocalPalette.current
     val ordered = reports.sortedBy { statusRank(it.status) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
@@ -247,6 +259,9 @@ private fun SiteStatusPage(reports: List<SiteReport>, summary: String?, onBack: 
                 modifier = Modifier.padding(top = 16.dp),
             )
             Text("${report.status}：${report.detail}", color = palette.muted, modifier = Modifier.padding(top = 4.dp))
+            if (report.status == "可用") {
+                TvButton("筛选这个站点", modifier = Modifier.padding(top = 8.dp)) { onBrowse(report.id) }
+            }
         }
     }
 }

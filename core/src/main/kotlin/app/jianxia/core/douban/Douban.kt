@@ -2,7 +2,9 @@ package app.jianxia.core.douban
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
@@ -19,7 +21,12 @@ data class DoubanCard(
     val year: String = "",
     val poster: String = "",
     val rating: String = "",
+    val subtitle: String = "",
 )
+
+data class YearChoice(val label: String, val range: String)
+
+data class DoubanChart(val id: String, val label: String)
 
 data class DoubanPerson(val name: String)
 
@@ -78,6 +85,61 @@ object DoubanProxy {
         return "https://movie.douban.com/subject/$safe/comments?start=${start.coerceAtLeast(0)}&limit=${limit.coerceIn(1, 50)}&status=P&sort=new_score"
     }
 
+    /**
+     * 组合筛选走 new_search_subjects。高票房、奥斯卡这类标签在没有年代、地区、类型时，
+     * 仍用 search_subjects，豆瓣的组合接口不认这些标签。
+     */
+    fun filterUrl(
+        kind: String,
+        featured: String,
+        yearRange: String,
+        country: String,
+        genre: String,
+        sort: String,
+        start: Int,
+        limit: Int = 20,
+    ): String {
+        val safeSort = if (sort == "R" || sort == "S" || sort == "U") sort else "U"
+        val safeStart = start.coerceAtLeast(0)
+        val safeLimit = limit.coerceIn(1, 50)
+        val bareCurated = featured in CURATED && yearRange.isBlank() && country.isBlank() && genre.isBlank()
+        if (bareCurated) {
+            val type = if (kind == "tv" || kind == "variety") "tv" else "movie"
+            val legacy = when (safeSort) {
+                "R" -> "time"
+                "S" -> "rank"
+                else -> "recommend"
+            }
+            return "https://movie.douban.com/j/search_subjects?type=$type&tag=${enc(featured)}&sort=$legacy&page_limit=$safeLimit&page_start=$safeStart"
+        }
+        val tags = buildList {
+            add(DoubanFilter.typeTag(kind))
+            if (featured.isNotBlank()) add(featured)
+            if (genre.isNotBlank() && genre !in GENRE_QUERY) add(genre)
+        }.joinToString(",")
+        val query = linkedMapOf(
+            "sort" to safeSort,
+            "range" to "0,10",
+            "tags" to tags,
+            "start" to safeStart.toString(),
+        )
+        if (genre.isNotBlank() && genre in GENRE_QUERY) query["genres"] = genre
+        if (country.isNotBlank()) query["countries"] = country
+        if (yearRange.isNotBlank()) query["year_range"] = yearRange
+        val body = query.entries.joinToString("&") { (key, value) -> "$key=${enc(value)}" }
+        return "https://movie.douban.com/j/new_search_subjects?$body"
+    }
+
+    fun chartUrl(id: String, start: Int, count: Int): String {
+        val safe = id.filter { it.isLetterOrDigit() || it == '_' }
+        return "https://m.douban.com/rexxar/api/v2/subject_collection/$safe/items?start=${start.coerceAtLeast(0)}&count=${count.coerceIn(1, 50)}&for_mobile=1"
+    }
+
+    fun comingUrl(kind: String, start: Int, count: Int): String {
+        val type = if (kind == "tv") "tv" else "movie"
+        return "https://m.douban.com/rexxar/api/v2/$type/coming_soon?start=${start.coerceAtLeast(0)}&count=${count.coerceIn(1, 50)}"
+    }
+
     fun dataUrl(mode: String, custom: String, target: String): String = when (mode) {
         CUSTOM -> prefix(custom, target)
         else -> target
@@ -104,6 +166,11 @@ object DoubanProxy {
     private fun enc(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
 
     private val IMAGE_HOST = Regex("""https?://img\d+\.doubanio\.com""", RegexOption.IGNORE_CASE)
+    private val CURATED = setOf("高票房", "奥斯卡", "金像奖", "金鸡奖")
+    private val GENRE_QUERY = setOf(
+        "喜剧", "动画", "动作", "恐怖", "战争", "科幻", "惊悚", "悬疑", "犯罪", "爱情",
+        "武侠", "奇幻", "冒险", "剧情", "历史", "纪录片", "音乐", "歌舞", "家庭", "传记", "古装",
+    )
 }
 
 object DoubanCatalog {
@@ -124,6 +191,81 @@ object DoubanCatalog {
     fun shelf(kind: String): DoubanShelf = if (kind == "tv") tv else movie
 }
 
+object DoubanFilter {
+    val kinds = listOf(
+        "movie" to "电影",
+        "tv" to "电视剧",
+        "variety" to "综艺",
+        "anime" to "动漫",
+    )
+    val sorts = listOf("U" to "最热", "R" to "最新", "S" to "高分")
+    val areas = listOf(
+        "内地" to "中国大陆",
+        "中国香港" to "中国香港",
+        "中国台湾" to "中国台湾",
+        "美国" to "美国",
+        "韩国" to "韩国",
+        "日本" to "日本",
+        "欧洲" to "欧洲",
+        "英国" to "英国",
+        "印度" to "印度",
+        "泰国" to "泰国",
+        "丹麦" to "丹麦",
+        "法国" to "法国",
+        "德国" to "德国",
+        "意大利" to "意大利",
+        "西班牙" to "西班牙",
+        "加拿大" to "加拿大",
+        "澳大利亚" to "澳大利亚",
+    )
+    val charts = listOf(
+        DoubanChart("movie_real_time_hotest", "实时热门电影"),
+        DoubanChart("movie_weekly_best", "一周口碑电影"),
+        DoubanChart("movie_top250", "电影 Top250"),
+        DoubanChart("tv_real_time_hotest", "实时热门电视"),
+        DoubanChart("tv_chinese_best_weekly", "华语口碑剧集"),
+        DoubanChart("tv_global_best_weekly", "全球口碑剧集"),
+        DoubanChart("show_chinese_best_weekly", "国内口碑综艺"),
+    )
+    val soonKinds = listOf("movie" to "电影", "tv" to "电视剧")
+
+    fun featured(kind: String): List<String> = when (kind) {
+        "movie" -> listOf("高票房", "豆瓣高分", "奥斯卡", "金像奖", "金鸡奖", "漫威", "迪士尼")
+        "tv", "anime" -> listOf("豆瓣高分", "漫威", "迪士尼")
+        else -> listOf("豆瓣高分")
+    }
+
+    fun genres(kind: String): List<String> = when (kind) {
+        "variety" -> listOf("真人秀", "脱口秀", "音乐", "歌舞", "访谈", "选秀")
+        "anime" -> listOf("喜剧", "动作", "科幻", "奇幻", "冒险", "魔幻", "热血", "恋爱", "悬疑")
+        else -> listOf(
+            "喜剧", "动画", "动作", "恐怖", "战争", "科幻", "惊悚", "悬疑", "犯罪",
+            "枪战", "爱情", "武侠", "奇幻", "冒险", "魔幻", "青春", "剧情",
+        )
+    }
+
+    fun years(nowYear: Int): List<YearChoice> {
+        val latest = nowYear.coerceAtLeast(2020)
+        val singles = (latest downTo 2020).map { YearChoice(it.toString(), "$it,$it") }
+        val decades = listOf(
+            YearChoice("10年代", "2010,2019"),
+            YearChoice("00年代", "2000,2009"),
+            YearChoice("90年代", "1990,1999"),
+            YearChoice("80年代", "1980,1989"),
+            YearChoice("70年代", "1970,1979"),
+            YearChoice("60年代", "1960,1969"),
+        )
+        return singles + decades
+    }
+
+    fun typeTag(kind: String): String = when (kind) {
+        "tv" -> "电视剧"
+        "variety" -> "综艺"
+        "anime" -> "动画"
+        else -> "电影"
+    }
+}
+
 object DoubanParse {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -131,26 +273,42 @@ object DoubanParse {
         val root = runCatching { json.parseToJsonElement(body.trim()) }.getOrNull() ?: return emptyList()
         val array = when (root) {
             is JsonArray -> root
-            is JsonObject -> root["subjects"]?.let { runCatching { it.jsonArray }.getOrNull() }
-                ?: root["items"]?.let { runCatching { it.jsonArray }.getOrNull() }
+            is JsonObject -> listOf("data", "subjects", "subject_collection_items", "items")
+                .firstNotNullOfOrNull { key -> root[key]?.let { runCatching { it.jsonArray }.getOrNull() } }
             else -> null
         } ?: return emptyList()
         return array.mapNotNull { element ->
             val obj = element as? JsonObject ?: return@mapNotNull null
             val title = text(obj, "title")
-            val id = text(obj, "id")
+            val id = text(obj, "id").ifBlank {
+                SUBJECT_ID.find(text(obj, "url"))?.groupValues?.getOrNull(1).orEmpty()
+            }
             if (title.isBlank() || id.isBlank()) return@mapNotNull null
             val pic = obj["pic"] as? JsonObject
-            val poster = text(obj, "cover", "img").ifBlank {
+            val poster = text(obj, "cover", "cover_url", "img").ifBlank {
                 pic?.let { text(it, "normal", "large") }.orEmpty()
             }
             val ratingObj = obj["rating"] as? JsonObject
-            val rating = text(obj, "rate").ifBlank {
-                ratingObj?.get("value")?.jsonPrimitive?.doubleOrNull?.let { formatRating(it) }.orEmpty()
+            val rating = scoreText(text(obj, "rate")).ifBlank {
+                ratingObj?.get("value")?.let { value ->
+                    (value as? JsonPrimitive)?.doubleOrNull ?: scalar(value).toDoubleOrNull()
+                }?.let { formatRating(it) }.orEmpty()
+            }
+            val casts = stringList(obj, "casts").ifEmpty { stringList(obj, "actors") }
+            val directors = stringList(obj, "directors")
+            val subtitle = text(obj, "card_subtitle").ifBlank { text(obj, "info") }.ifBlank {
+                casts.take(4).joinToString(" ")
+            }.ifBlank {
+                directors.take(2).joinToString(" ")
             }
             val year = text(obj, "year").ifBlank { yearIn(text(obj, "card_subtitle")) }
-            DoubanCard(id = id, title = title, year = year, poster = poster, rating = rating)
+            DoubanCard(id = id, title = title, year = year, poster = poster, rating = rating, subtitle = subtitle)
         }
+    }
+
+    fun scoreText(raw: String?): String {
+        val number = raw?.trim()?.removeSuffix("分")?.toDoubleOrNull() ?: return ""
+        return formatRating(number)
     }
 
     fun detail(body: String): DoubanDetail? {
@@ -226,10 +384,28 @@ object DoubanParse {
 
     private fun text(obj: JsonObject, vararg keys: String): String {
         for (key in keys) {
-            val value = obj[key]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val value = scalar(obj[key])
             if (value.isNotEmpty() && value != "null") return value
         }
         return ""
+    }
+
+    private fun scalar(element: JsonElement?): String = when (element) {
+        null -> ""
+        is JsonPrimitive -> element.contentOrNull?.trim().orEmpty()
+        is JsonObject -> text(element, "url", "normal", "large", "name")
+        else -> ""
+    }
+
+    private fun stringList(obj: JsonObject, key: String): List<String> {
+        val array = obj[key] as? JsonArray ?: return emptyList()
+        return array.mapNotNull { element ->
+            when (element) {
+                is JsonPrimitive -> element.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+                is JsonObject -> text(element, "name").takeIf { it.isNotBlank() }
+                else -> null
+            }
+        }.distinct().take(8)
     }
 
     private fun yearIn(subtitle: String): String = Regex("""(19|20)\d{2}""").find(subtitle)?.value.orEmpty()
@@ -242,4 +418,5 @@ object DoubanParse {
 
     private val STAR = Regex("""allstar(\d)0""")
     private val TOTAL = Regex("""全部\s*(\d+)\s*条""")
+    private val SUBJECT_ID = Regex("""/subject/(\d+)""")
 }
