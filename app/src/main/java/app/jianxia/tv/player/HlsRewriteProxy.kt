@@ -21,10 +21,15 @@ class HlsRewriteProxy(private val http: OkHttpClient) {
 
     fun wrap(url: String, headers: Map<String, String>, rules: List<Regex>): String {
         if (!url.startsWith("http://") && !url.startsWith("https://")) return url
+        if (url.contains("127.0.0.1") || url.contains("localhost")) return url
         if (!url.contains("m3u8", ignoreCase = true)) return url
-        if (!ensure()) return url
-        val id = remember(Session(url, headers, rules))
-        return "http://127.0.0.1:$port/p/$id.m3u8"
+        return try {
+            if (!ensure()) return url
+            val id = remember(Session(url, headers, rules))
+            "http://127.0.0.1:$port/p/$id.m3u8"
+        } catch (_: Exception) {
+            url
+        }
     }
 
     private fun ensure(): Boolean {
@@ -75,10 +80,12 @@ class HlsRewriteProxy(private val http: OkHttpClient) {
             return
         }
         val body = if (HlsAdFilter.looksLikePlaylist(upstream.text)) {
-            HlsAdFilter.rewrite(upstream.text, upstream.finalUrl, session.rules) { nested ->
-                val nestedId = remember(session.copy(url = nested))
-                "http://127.0.0.1:$port/p/$nestedId.m3u8"
-            }.text
+            runCatching {
+                HlsAdFilter.rewrite(upstream.text, upstream.finalUrl, session.rules) { nested ->
+                    val nestedId = remember(session.copy(url = nested))
+                    "http://127.0.0.1:$port/p/$nestedId.m3u8"
+                }.text
+            }.getOrDefault(upstream.text).ifBlank { upstream.text }
         } else {
             upstream.text
         }

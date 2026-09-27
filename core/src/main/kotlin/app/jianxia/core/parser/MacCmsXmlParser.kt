@@ -45,7 +45,7 @@ object MacCmsXmlParser {
             id = childText("id").orEmpty(),
             title = title,
             year = childText("year"),
-            pic = normalizePic(childText("pic")),
+            pic = normalizePic(childText("pic"), api),
             typeName = childText("type"),
             remarks = childText("note"),
             area = childText("area"),

@@ -38,7 +38,7 @@ object MacCmsJsonParser {
                 id = obj.text("vod_id", "id").orEmpty(),
                 title = title,
                 year = obj.text("vod_year", "year"),
-                pic = normalizePic(obj.text("vod_pic", "pic")),
+                pic = normalizePic(obj.text("vod_pic", "pic"), api),
                 typeName = obj.text("type_name", "vod_class"),
                 remarks = obj.text("vod_remarks", "note"),
                 area = obj.text("vod_area", "area"),

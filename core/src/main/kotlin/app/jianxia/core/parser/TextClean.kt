@@ -16,14 +16,7 @@ fun extractJsonPayload(raw: String): String {
     return text.substring(start, end + 1)
 }
 
-fun normalizePic(pic: String?): String? {
-    val value = pic?.trim().orEmpty()
-    if (value.isEmpty()) return null
-    return when {
-        value.startsWith("//") -> "https:$value"
-        else -> value
-    }
-}
+fun normalizePic(pic: String?, base: String? = null): String? = PosterRefs.store(pic, base)
 
 fun stripHtml(raw: String?): String? {
     if (raw.isNullOrBlank()) return null

@@ -12,7 +12,8 @@ object PosterUrls {
             listOf(url)
         } else {
             val path = url.substring(match.range.last + 1)
-            listOf("img3", "img1", "img2", "img9").map { "https://$it.doubanio.com$path" }
+            val alts = listOf("img9", "img3", "img1", "img2").map { "https://$it.doubanio.com$path" }
+            listOf(url) + alts
         }
         val proxied = directs.map { direct ->
             val bare = direct.removePrefix("https://").removePrefix("http://")

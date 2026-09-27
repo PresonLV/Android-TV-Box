@@ -18,7 +18,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.ExoPlayer
@@ -27,7 +27,9 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import app.jianxia.tv.data.net.ResilientDns
 import app.jianxia.tv.data.net.Ua
+import okhttp3.OkHttpClient
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -57,6 +59,7 @@ data class StreamOpen(
     val headers: Map<String, String> = emptyMap(),
     val resumeMs: Long = 0,
     val speed: Float = 1f,
+    val mime: String? = null,
 ) {
     fun requestHeaders(): Pair<String, Map<String, String>> {
         val agent = userAgent.ifBlank {
@@ -103,7 +106,7 @@ class PlaybackHost(context: Context) {
 
     private val appContext = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
-    private val headerSource = HeaderSource()
+    private val headerSource = HeaderSource(playbackClient)
     private val bandwidthMeter = DefaultBandwidthMeter.Builder(appContext).build()
     private var libVlc: LibVLC? = null
     private var mediaPlayer: MediaPlayer? = null
@@ -117,8 +120,18 @@ class PlaybackHost(context: Context) {
     private var eventsOpen = false
     private var aspect = "fit"
     private var vlcBuffering = false
+    private var markPos = 0L
+    private var markBuf = 0L
     private val stall = Runnable {
-        if (!hasFirstFrame) fail("长时间没有画面")
+        if (!eventsOpen) return@Runnable
+        val pos = positionMs
+        val buf = bufferedMs
+        val moved = pos > markPos + 500 || buf > markBuf + 256_000
+        if (moved) {
+            armStall()
+        } else {
+            fail("缓冲超过 18 秒没有进展")
+        }
     }
 
     var engine: EngineId = EngineId.Vlc
@@ -157,6 +170,12 @@ class PlaybackHost(context: Context) {
             EngineId.Vlc -> vlcBuffering
         }
 
+    val bufferedMs: Long
+        get() = when (engine) {
+            EngineId.Exo -> exo?.bufferedPosition ?: 0L
+            EngineId.Vlc -> positionMs
+        }
+
     fun bind(target: FrameLayout) {
         if (container === target && mounted) return
         container = target
@@ -189,7 +208,7 @@ class PlaybackHost(context: Context) {
         eventsOpen = true
         generation += 1
         val token = generation
-        handler.removeCallbacks(stall)
+        armStall()
         try {
             ensurePlayer()
             mount()
@@ -201,6 +220,7 @@ class PlaybackHost(context: Context) {
             if (engine == EngineId.Vlc) {
                 engine = EngineId.Exo
                 releasePlayers()
+                eventsOpen = true
                 runCatching {
                     ensurePlayer()
                     mount()
@@ -216,8 +236,15 @@ class PlaybackHost(context: Context) {
         }
         applySpeed()
         applyAspect()
-        handler.postDelayed(stall, FIRST_FRAME_TIMEOUT_MS)
+        armStall()
         if (token != generation) return
+    }
+
+    private fun armStall() {
+        markPos = positionMs
+        markBuf = bufferedMs
+        handler.removeCallbacks(stall)
+        handler.postDelayed(stall, STALL_MS)
     }
 
     fun toggle() {
@@ -380,7 +407,8 @@ class PlaybackHost(context: Context) {
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 if (engine != EngineId.Exo) return
-                fail("播放失败")
+                val detail = error.errorCodeName.ifBlank { error.message }.orEmpty()
+                fail(if (detail.isBlank()) "播放失败" else "播放失败：$detail")
             }
 
             override fun onRenderedFirstFrame() {
@@ -407,7 +435,10 @@ class PlaybackHost(context: Context) {
         val (agent, headers) = open.requestHeaders()
         headerSource.userAgent = agent
         headerSource.headers = headers
-        player.setMediaItem(MediaItem.fromUri(open.url))
+        val item = MediaItem.Builder().setUri(open.url).apply {
+            if (!open.mime.isNullOrBlank()) setMimeType(open.mime)
+        }.build()
+        player.setMediaItem(item)
         player.prepare()
         player.playWhenReady = true
         if (open.resumeMs > 3_000) player.seekTo(open.resumeMs)
@@ -535,7 +566,7 @@ class PlaybackHost(context: Context) {
     private fun markFirstFrame() {
         if (!eventsOpen || hasFirstFrame) return
         hasFirstFrame = true
-        handler.removeCallbacks(stall)
+        armStall()
         listener?.onFirstFrame()
     }
 
@@ -564,25 +595,29 @@ class PlaybackHost(context: Context) {
         mounted = false
     }
 
-    private class HeaderSource : androidx.media3.datasource.DataSource.Factory {
+    private class HeaderSource(private val client: OkHttpClient) : androidx.media3.datasource.DataSource.Factory {
         @Volatile var userAgent: String = Ua.MEDIA
         @Volatile var headers: Map<String, String> = emptyMap()
 
         @Volatile var listener: androidx.media3.datasource.TransferListener? = null
 
         override fun createDataSource(): androidx.media3.datasource.DataSource =
-            DefaultHttpDataSource.Factory()
+            OkHttpDataSource.Factory(client)
                 .setUserAgent(userAgent)
                 .setDefaultRequestProperties(headers)
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(12_000)
-                .setReadTimeoutMs(20_000)
                 .setTransferListener(listener)
                 .createDataSource()
     }
 
     companion object {
-        const val FIRST_FRAME_TIMEOUT_MS = 12_000L
+        const val STALL_MS = 18_000L
+        private val playbackClient: OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(12, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .dns(ResilientDns())
+            .build()
     }
 }
 

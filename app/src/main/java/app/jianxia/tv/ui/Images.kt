@@ -16,8 +16,9 @@ private const val BROWSER =
 
 fun installImageLoader(context: Context) {
     val http = OkHttpClient.Builder()
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
         .followRedirects(true)
         .dns(ResilientDns())
         .addInterceptor { chain ->
@@ -27,10 +28,8 @@ fun installImageLoader(context: Context) {
             if (request.header("User-Agent").isNullOrBlank()) {
                 builder.header("User-Agent", BROWSER)
             }
-            if (host.contains("doubanio.com") || host.contains("douban.com")) {
-                if (request.header("Referer").isNullOrBlank()) {
-                    builder.header("Referer", "https://movie.douban.com/")
-                }
+            if (request.header("Referer").isNullOrBlank() && (host.contains("doubanio.com") || host.contains("douban.com"))) {
+                builder.header("Referer", "https://movie.douban.com/")
             }
             chain.proceed(builder.build())
         }
@@ -53,10 +52,22 @@ fun installImageLoader(context: Context) {
     Coil.setImageLoader(loader)
 }
 
-fun limitedImage(context: Context, url: String, widthPx: Int, heightPx: Int, fade: Boolean): ImageRequest =
+fun limitedImage(
+    context: Context,
+    url: String,
+    widthPx: Int,
+    heightPx: Int,
+    fade: Boolean,
+    headers: Map<String, String> = emptyMap(),
+): ImageRequest =
     ImageRequest.Builder(context)
         .data(url)
         .size(widthPx, heightPx)
         .precision(Precision.INEXACT)
         .crossfade(if (fade) 180 else 0)
+        .apply {
+            headers.forEach { (key, value) ->
+                if (value.isNotBlank()) addHeader(key, value)
+            }
+        }
         .build()

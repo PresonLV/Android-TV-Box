@@ -263,7 +263,7 @@ object DoubanParse {
             }
             if (title.isBlank() || id.isBlank()) return@mapNotNull null
             val pic = obj["pic"] as? JsonObject
-            val poster = text(obj, "cover", "cover_url", "img").ifBlank {
+            val poster = text(obj, "cover", "cover_url", "cover_x", "cover_y", "img").ifBlank {
                 pic?.let { text(it, "normal", "large") }.orEmpty()
             }
             val ratingObj = obj["rating"] as? JsonObject

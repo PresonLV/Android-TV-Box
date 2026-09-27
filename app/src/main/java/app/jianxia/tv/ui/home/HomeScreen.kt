@@ -258,7 +258,12 @@ private fun SiteStatusPage(
                 fontSize = 18.sp,
                 modifier = Modifier.padding(top = 16.dp),
             )
-            Text("${report.status}：${report.detail}", color = palette.muted, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                "${report.status}：${report.detail}",
+                color = palette.muted,
+                modifier = Modifier.padding(top = 4.dp),
+                lineHeight = 20.sp,
+            )
             if (report.status == "可用") {
                 TvButton("筛选这个站点", modifier = Modifier.padding(top = 8.dp)) { onBrowse(report.id) }
             }

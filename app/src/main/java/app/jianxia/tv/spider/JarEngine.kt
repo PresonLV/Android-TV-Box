@@ -2,7 +2,9 @@ package app.jianxia.tv.spider
 
 import android.content.Context
 import android.os.Build
+import android.os.Process
 import app.jianxia.core.model.VodItem
+import app.jianxia.core.spider.ArmElf
 import app.jianxia.core.model.VodPage
 import app.jianxia.core.model.VodSiteDef
 import app.jianxia.core.spider.SpiderJson
@@ -121,6 +123,7 @@ internal class JarEngine(
     }
 
     private fun boot(loader: JarClassLoader) {
+        ProcessAbi.alignBuildFields()
         val init = runCatching { loader.loadClass("com.github.catvod.spider.Init") }.getOrNull() ?: return
         val method = init.methods.firstOrNull {
             it.name == "init" && Modifier.isStatic(it.modifiers) && it.parameterTypes.size == 1
@@ -155,20 +158,26 @@ internal class JarEngine(
     }
 
     private fun extractLibs(jar: File, dest: File) {
-        val abi = Build.SUPPORTED_ABIS.firstOrNull().orEmpty().lowercase()
+        val abi = ProcessAbi.name().lowercase()
+        dest.setReadable(true, false)
+        dest.setExecutable(true, false)
         ZipFile(jar).use { zip ->
             zip.entries().asSequence().filter { !it.isDirectory && it.name.endsWith(".so") }.forEach { entry ->
                 if (!matchesAbi(entry.name, abi)) return@forEach
-                val base = entry.name.substringAfterLast("/")
-                zip.getInputStream(entry).use { input ->
-                    File(dest, base).outputStream().use { input.copyTo(it) }
-                }
-                if (!base.startsWith("lib")) {
-                    zip.getInputStream(entry).use { input ->
-                        File(dest, "lib$base").outputStream().use { input.copyTo(it) }
-                    }
-                }
+                val bytes = zip.getInputStream(entry).use { ArmElf.preferHardFloat(it.readBytes()) }
+                writeLib(dest, entry.name.substringAfterLast("/"), bytes)
             }
+        }
+    }
+
+    private fun writeLib(dest: File, name: String, bytes: ByteArray) {
+        val targets = if (name.startsWith("lib")) listOf(name) else listOf(name, "lib$name")
+        targets.forEach { base ->
+            val file = File(dest, base)
+            file.writeBytes(bytes)
+            file.setReadable(true, false)
+            file.setWritable(false, false)
+            file.setExecutable(true, false)
         }
     }
 
@@ -201,5 +210,41 @@ internal class JarEngine(
         invoke(target, name, *args)
     } catch (_: NoSuchMethodException) {
         null
+    }
+}
+
+/**
+ * 饭太硬按 Build.CPU_ABI 是否包含 64 选择 v7 或 v8。
+ * 32 位进程有时仍读到 arm64-v8a，这里改成当前进程的 ABI。
+ */
+internal object ProcessAbi {
+    fun is64Bit(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        Process.is64Bit()
+    } else {
+        Build.CPU_ABI.orEmpty().contains("64")
+    }
+
+    fun name(): String {
+        val listed = if (is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS
+        return listed.firstOrNull().orEmpty().ifBlank { if (is64Bit()) "arm64-v8a" else "armeabi-v7a" }
+    }
+
+    fun alignBuildFields() {
+        val abi = name()
+        if (!Build.CPU_ABI.equals(abi, true)) setStatic("CPU_ABI", abi)
+        val second = (if (is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS).getOrNull(1).orEmpty()
+        if (Build.CPU_ABI2 != second) setStatic("CPU_ABI2", second)
+    }
+
+    private fun setStatic(fieldName: String, value: String) {
+        runCatching {
+            val field = Build::class.java.getDeclaredField(fieldName)
+            field.isAccessible = true
+            val flags = runCatching { java.lang.reflect.Field::class.java.getDeclaredField("accessFlags") }
+                .getOrElse { java.lang.reflect.Field::class.java.getDeclaredField("modifiers") }
+            flags.isAccessible = true
+            flags.setInt(field, field.modifiers and java.lang.reflect.Modifier.FINAL.inv())
+            field.set(null, value)
+        }
     }
 }

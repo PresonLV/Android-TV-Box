@@ -204,13 +204,44 @@ class MergeRankTest {
         assertTrue(app.jianxia.core.spider.LiveSites.matches("🐯虎牙┃直播", "虎牙js", "csp_Huya"))
         assertTrue(!app.jianxia.core.spider.LiveSites.matches("豆豆┃片单", "点我切源", "csp_DouDouGuard"))
         assertEquals(
-            "UnsatisfiedLinkError: dlopen failed",
+            "IllegalStateException: 爬虫执行失败 ← UnsatisfiedLinkError: dlopen failed",
             app.jianxia.core.spider.SpiderFault.explain(IllegalStateException("爬虫执行失败", UnsatisfiedLinkError("dlopen failed"))),
         )
         assertEquals(
-            listOf("https://img3.doubanio.com/a.jpg", "https://img1.doubanio.com/a.jpg", "https://img2.doubanio.com/a.jpg", "https://img9.doubanio.com/a.jpg"),
+            listOf(
+                "https://img9.doubanio.com/a.jpg",
+                "https://img3.doubanio.com/a.jpg",
+                "https://img1.doubanio.com/a.jpg",
+                "https://img2.doubanio.com/a.jpg",
+            ),
             app.jianxia.core.douban.PosterUrls.candidates("https://img9.doubanio.com/a.jpg").take(4),
         )
+        val poster = app.jianxia.core.parser.PosterRefs.parse(
+            "//img.example/a.jpg@Referer=https://site.example/@User-Agent=TV",
+        )
+        assertEquals("https://img.example/a.jpg", poster?.url)
+        assertEquals("https://site.example/", poster?.headers?.get("Referer"))
+        assertEquals("TV", poster?.headers?.get("User-Agent"))
+        assertEquals(
+            "https://api.example/upload/a.jpg",
+            app.jianxia.core.parser.PosterRefs.parse("/upload/a.jpg", "https://api.example/provide/vod")?.url,
+        )
+        assertTrue(app.jianxia.core.parser.needsSniff("https://jx.example/play.php", 1, 0))
+        assertTrue(!app.jianxia.core.parser.needsSniff("https://cdn.example/a.m3u8", 1, 0))
+        val elf = ByteArray(64)
+        elf[0] = 0x7f
+        elf[1] = 'E'.code.toByte()
+        elf[2] = 'L'.code.toByte()
+        elf[3] = 'F'.code.toByte()
+        elf[4] = 1
+        elf[18] = 40
+        elf[36] = 0x00
+        elf[37] = 0x02
+        elf[38] = 0x00
+        elf[39] = 0x05
+        val hardened = app.jianxia.core.spider.ArmElf.preferHardFloat(elf)
+        assertEquals(0x04, hardened[37].toInt() and 0xff)
+        assertTrue(app.jianxia.core.spider.ArmElf.preferHardFloat(hardened)[37] == hardened[37])
         assertEquals("exo", app.jianxia.core.player.preferredEngineWire("vlc", false, listOf("armeabi-v7a")))
         assertEquals("vlc", app.jianxia.core.player.preferredEngineWire("vlc", true, listOf("armeabi-v7a")))
         assertFalse(AppSettings().spiderEnabled)

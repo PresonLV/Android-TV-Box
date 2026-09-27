@@ -77,6 +77,16 @@ class SpiderTest {
         assertEquals("proxy://do=js", play.url)
         assertEquals("UA", play.userAgent)
         assertEquals("https://example.test/", play.referer)
+        val stringHeader = SpiderJson.play("""{"parse":1,"jx":1,"url":"https://jx.example/p","header":"{\"User-Agent\":\"UA2\",\"Referer\":\"https://r.example/\"}"}""")
+        assertEquals(1, stringHeader.parse)
+        assertEquals(1, stringHeader.jx)
+        assertEquals("UA2", stringHeader.userAgent)
+        assertEquals("https://r.example/", stringHeader.referer)
+        val withPic = SpiderJson.page(
+            """{"list":[{"vod_id":"1","vod_name":"海报","vod_pic":"/a.jpg@Referer=https://pic.example/"}]}""",
+            site.copy(api = "https://api.example/vod", referer = "https://site.example/"),
+        )
+        assertEquals("https://api.example/a.jpg@Referer=https://pic.example/", withPic.items.single().pic)
     }
 
     @Test

@@ -214,7 +214,8 @@ fun Poster(
 ) {
     val palette = LocalPalette.current
     val context = LocalContext.current
-    val candidates = remember(url) { app.jianxia.core.douban.PosterUrls.candidates(url) }
+    val poster = remember(url) { app.jianxia.core.parser.PosterRefs.parse(url) }
+    val candidates = remember(poster) { app.jianxia.core.douban.PosterUrls.candidates(poster?.url) }
     var attempt by remember(url) { androidx.compose.runtime.mutableIntStateOf(0) }
     var gaveUp by remember(url) { androidx.compose.runtime.mutableStateOf(false) }
     val current = candidates.getOrNull(attempt)
@@ -222,8 +223,8 @@ fun Poster(
         Text(title.take(1).ifBlank { "片" }, color = palette.accent, fontSize = 28.sp, fontWeight = FontWeight.Medium)
         if (current != null && !gaveUp) {
             AsyncImage(
-                model = remember(current, maxWidthPx, maxHeightPx, fade) {
-                    limitedImage(context, current, maxWidthPx, maxHeightPx, fade)
+                model = remember(current, maxWidthPx, maxHeightPx, fade, poster) {
+                    limitedImage(context, current, maxWidthPx, maxHeightPx, fade, poster?.headers.orEmpty())
                 },
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),

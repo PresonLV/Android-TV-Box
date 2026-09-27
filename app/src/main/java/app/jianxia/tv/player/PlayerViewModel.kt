@@ -17,6 +17,8 @@ import app.jianxia.core.model.ParseDef
 import app.jianxia.core.model.SiteKind
 import app.jianxia.core.parser.extractMediaUrl
 import app.jianxia.core.parser.isDirectMediaUrl
+import app.jianxia.core.parser.mediaMime
+import app.jianxia.core.parser.needsSniff
 import app.jianxia.core.parser.urlEncode
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.data.net.NetClient
@@ -149,8 +151,10 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private var playToken = 0
     private var rawOpen: StreamOpen? = null
     private var subtitleChoice = "off"
+    private var uiContext: Context? = null
 
     fun attach(context: Context) {
+        uiContext = context
         if (host != null) return
         val created = PlaybackHost(context)
         host = created
@@ -195,18 +199,19 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
 
             override fun onFailure(message: String) {
                 val playback = host ?: return
+                val why = message.ifBlank { "播放失败" }
                 if (!playback.hasFirstFrame && fallback?.onFailed() == true) {
                     _ui.update {
                         it.copy(
                             engine = playback.engine.wire(),
-                            hint = "改用 ${playback.engine.label()} 重试",
+                            hint = "$why，改用 ${playback.engine.label()} 重试",
                             error = null,
                             buffering = true,
                         )
                     }
                     return
                 }
-                failover(if (playback.hasFirstFrame) "播放中断" else message.ifBlank { "播放失败" })
+                failover(if (playback.hasFirstFrame) "$why，播放中断" else why)
             }
 
             override fun onState(playing: Boolean, buffering: Boolean) {
@@ -563,14 +568,17 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             rawOpen = open
             val (agent, headerMap) = open.requestHeaders()
             val playbackUrl = if (settings.skipHlsAds) {
-                app.hls.wrap(media.url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
+                runCatching {
+                    app.hls.wrap(media.url, headerMap + ("User-Agent" to agent), HlsAdFilter.compileRules(settings.hlsAdRules))
+                }.getOrDefault(media.url)
             } else {
                 media.url
             }
+            val mime = mediaMime(playbackUrl) ?: peekMime(playbackUrl, headerMap, agent)
             withContext(Dispatchers.Main) {
                 if (token != playToken) return@withContext
                 target.setAspect(aspect)
-                target.play(open.copy(url = playbackUrl))
+                target.play(open.copy(url = playbackUrl, mime = mime))
                 if (subtitleChoice.startsWith("embedded:")) target.selectEmbedded(subtitleChoice.removePrefix("embedded:"))
             }
             loadDanmaku(settings)
@@ -599,14 +607,38 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                     if (play.referer.isNotBlank()) referer = play.referer
                     headers = play.headers + headers
                 }
-                if (play.parse == 1 && !isDirectMediaUrl(url)) {
-                    url = resolvePlayUrl(url, parses, app.http)
-                }
+                url = finishUrl(url, play.parse, play.jx, headers + mapOf("User-Agent" to userAgent, "Referer" to referer), alwaysParse = false)
             }
         } else {
-            url = resolvePlayUrl(url, parses, app.http)
+            url = finishUrl(url, 0, 0, headers + mapOf("User-Agent" to userAgent, "Referer" to referer), alwaysParse = true)
         }
         return ResolvedMedia(url, userAgent, referer, headers).also { resolved[candidate.id] = it }
+    }
+
+    private suspend fun finishUrl(
+        raw: String,
+        parse: Int,
+        jx: Int,
+        headers: Map<String, String>,
+        alwaysParse: Boolean,
+    ): String {
+        var url = raw
+        if ((alwaysParse || needsSniff(url, parse, jx)) && !isDirectMediaUrl(url)) {
+            url = resolvePlayUrl(url, parses, app.http)
+        }
+        if (!needsSniff(url, parse, jx)) return url
+        val context = uiContext ?: return url
+        val sniffed = runCatching { WebSniffer.sniff(context, url, headers) }.getOrNull()
+        return sniffed?.takeIf { it.isNotBlank() } ?: url
+    }
+
+    private fun peekMime(url: String, headers: Map<String, String>, userAgent: String): String? {
+        if (mediaMime(url) != null) return mediaMime(url)
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return null
+        return runCatching {
+            val response = app.http.fetch(url, headers, maxBytes = 512, userAgent = userAgent, timeoutMs = 4_000)
+            mediaMime(response.finalUrl, response.text, null)
+        }.getOrNull()
     }
 
     private suspend fun probeAll(list: List<Candidate>): List<LineProbe> = coroutineScope {
@@ -683,15 +715,6 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 }
                 val now = System.currentTimeMillis()
                 if (target.hasFirstFrame) maybeIntro()
-                if (target.hasFirstFrame && target.isBuffering) {
-                    if (bufferingSince == 0L) bufferingSince = now
-                    if (now - bufferingSince > 12_000) failover("缓冲超时")
-                } else {
-                    bufferingSince = 0
-                }
-                if (target.hasFirstFrame && target.isPlaying && position > 0 && now - lastMove > 15_000) {
-                    failover("播放停滞")
-                }
                 if (!outroFired && !suppressEnd && outroMs > 0 && duration > outroMs + 5_000 && duration - position in 1..outroMs) {
                     outroFired = true
                     countdown = null

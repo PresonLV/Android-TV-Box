@@ -55,9 +55,15 @@ object SpiderJson {
 
     fun play(raw: String?): SpiderPlay {
         val root = objectOf(raw) ?: return SpiderPlay("")
-        val header = root["header"] as? JsonObject
         val headers = linkedMapOf<String, String>()
-        header?.entries?.forEach { (key, value) -> value.asText()?.let { headers[key] = it } }
+        when (val header = root["header"]) {
+            is JsonObject -> header.entries.forEach { (key, value) -> value.asText()?.let { headers[key] = it } }
+            is kotlinx.serialization.json.JsonPrimitive -> {
+                val nested = runCatching { json.parseToJsonElement(header.content).jsonObject }.getOrNull()
+                nested?.entries?.forEach { (key, value) -> value.asText()?.let { headers[key] = it } }
+            }
+            else -> Unit
+        }
         val userAgent = headers.entries.firstOrNull { it.key.equals("User-Agent", true) }?.value.orEmpty()
         val referer = headers.entries.firstOrNull { it.key.equals("Referer", true) }?.value.orEmpty()
         val kept = headers.filterKeys { key ->
@@ -99,7 +105,13 @@ object SpiderJson {
                 id = id,
                 title = title,
                 year = obj.text("vod_year", "year"),
-                pic = obj.text("vod_pic", "pic"),
+                pic = app.jianxia.core.parser.PosterRefs.store(
+                    obj.text("vod_pic", "pic"),
+                    site.api,
+                    site.referer,
+                    site.userAgent,
+                    site.headers,
+                ),
                 typeName = obj.text("type_name"),
                 remarks = obj.text("vod_remarks", "vod_remark"),
                 area = obj.text("vod_area"),

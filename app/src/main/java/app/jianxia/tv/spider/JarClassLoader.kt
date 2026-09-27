@@ -1,5 +1,6 @@
 package app.jianxia.tv.spider
 
+import app.jianxia.core.spider.ArmElf
 import dalvik.system.DexClassLoader
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -31,7 +32,7 @@ internal class JarClassLoader(
     }
 
     override fun getResourceAsStream(name: String): InputStream? {
-        zipBytes(name)?.let { return ByteArrayInputStream(it) }
+        zipBytes(name)?.let { return ByteArrayInputStream(ArmElf.preferHardFloat(it)) }
         return super.getResourceAsStream(name)
     }
 

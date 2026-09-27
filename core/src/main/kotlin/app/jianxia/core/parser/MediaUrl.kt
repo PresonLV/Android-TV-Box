@@ -13,6 +13,33 @@ fun isDirectMediaUrl(url: String): Boolean {
     return lower.contains("mime=video") || lower.contains("/m3u8") || lower.contains("type=m3u8")
 }
 
+/** parse=1 / jx=1，或看起来是网页而不是媒体文件时，需要解析或嗅探。 */
+fun needsSniff(url: String, parse: Int = 0, jx: Int = 0): Boolean {
+    val value = url.trim()
+    if (isDirectMediaUrl(value)) return false
+    if (!(value.startsWith("http://") || value.startsWith("https://"))) return false
+    if (parse == 1 || jx == 1) return true
+    val path = value.lowercase().substringBefore('?').substringBefore('#')
+    return path.endsWith(".html") || path.endsWith(".htm") || path.endsWith(".php") || path.contains("/jx")
+}
+
+fun mediaMime(url: String, head: String = "", contentType: String? = null): String? {
+    val type = contentType.orEmpty().lowercase()
+    val path = url.lowercase().substringBefore('?').substringBefore('#')
+    val sample = head.take(240)
+    return when {
+        path.contains(".m3u8") || path.contains(".m3u") || type.contains("mpegurl") || sample.contains("#EXTM3U", true) ->
+            "application/vnd.apple.mpegurl"
+        path.endsWith(".mpd") || type.contains("dash+xml") || sample.contains("<MPD") -> "application/dash+xml"
+        path.endsWith(".mp4") || path.endsWith(".m4v") || path.endsWith(".mov") -> "video/mp4"
+        path.endsWith(".mkv") -> "video/x-matroska"
+        path.endsWith(".flv") -> "video/x-flv"
+        path.endsWith(".ts") -> "video/mp2t"
+        path.endsWith(".webm") -> "video/webm"
+        else -> null
+    }
+}
+
 fun extractMediaUrl(raw: String): String? {
     val root = runCatching {
         kotlinx.serialization.json.Json { isLenient = true; ignoreUnknownKeys = true }

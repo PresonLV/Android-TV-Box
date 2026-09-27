@@ -4,14 +4,15 @@ package app.jianxia.core.spider
 object SpiderFault {
     fun explain(error: Throwable?): String {
         if (error == null) return "没有返回内容"
-        val root = generateSequence(error) { it.cause }.last()
-        val name = root.javaClass.simpleName.ifBlank { "Exception" }
-        val message = (root.message ?: error.message).orEmpty().replace('\n', ' ').trim()
-        val clipped = message.take(90)
-        return when {
-            clipped.isBlank() -> name
-            clipped == name -> name
-            else -> "$name: $clipped"
-        }
+        val chain = generateSequence(error) { it.cause }.take(6).toList()
+        if (chain.isEmpty()) return "没有返回内容"
+        return chain.joinToString(" ← ") { item ->
+            val name = item.javaClass.simpleName.ifBlank { "Exception" }
+            val message = item.message.orEmpty().replace('\n', ' ').trim().take(140)
+            when {
+                message.isBlank() || message == name -> name
+                else -> "$name: $message"
+            }
+        }.take(420)
     }
 }

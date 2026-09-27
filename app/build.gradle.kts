@@ -24,8 +24,8 @@ android {
         applicationId = "app.jianxia.tv"
         minSdk = 21
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.4.5-beta"
+        versionCode = 17
+        versionName = "0.4.6-beta"
         vectorDrawables.useSupportLibrary = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -122,6 +122,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-exoplayer-dash:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    implementation("androidx.media3:media3-datasource-okhttp:1.5.1")
     implementation("org.videolan.android:libvlc-all:3.6.3")
 
     implementation("androidx.room:room-runtime:2.6.1")
@@ -141,7 +142,7 @@ dependencies {
 }
 
 tasks.configureEach {
-    val needsReleaseCert = name.contains("Release") && (
+    val needsReleaseCert = name.endsWith("Release") && (
         name.startsWith("package") ||
             name.startsWith("sign") ||
             name.startsWith("assemble")
