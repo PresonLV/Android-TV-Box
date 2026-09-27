@@ -1,0 +1,121 @@
+name: 构建 APK
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 安装 Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # 不要请求已经下架的 tools 包，否则 sdkmanager 会直接失败。
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: 载入固定发布证书
+        run: |
+          set -euo pipefail
+          ks="signing/geren-yingyuan-release.pkcs12"
+          envfile="signing/release.env"
+          if [ ! -f "$ks" ] || [ ! -f "$envfile" ]; then
+            echo "::error::发布签名材料缺失：需要 ${ks} 与 ${envfile}。不会改用随机调试证书。"
+            exit 1
+          fi
+          set -a
+          # shellcheck disable=SC1090
+          source "$envfile"
+          set +a
+          if [ -z "${KEYSTORE_PASSWORD:-}" ] || [ -z "${KEY_ALIAS:-}" ] || [ -z "${KEY_PASSWORD:-}" ]; then
+            echo "::error::signing/release.env 缺少 KEYSTORE_PASSWORD、KEY_ALIAS 或 KEY_PASSWORD。不会改用随机调试证书。"
+            exit 1
+          fi
+          {
+            echo "KEYSTORE_FILE=${PWD}/${ks}"
+            echo "KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "KEY_ALIAS=${KEY_ALIAS}"
+            echo "KEY_PASSWORD=${KEY_PASSWORD}"
+          } >> "$GITHUB_ENV"
+
+      - name: 单元测试并打包
+        run: ./gradlew :core:test :app:assembleRelease --stacktrace
+
+      - name: 整理安装包
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/*universal*.apk dist/geren-yingyuan-universal.apk
+          cp app/build/outputs/apk/release/*arm64-v8a*.apk dist/geren-yingyuan-arm64-v8a.apk
+          cp app/build/outputs/apk/release/*armeabi-v7a*.apk dist/geren-yingyuan-armeabi-v7a.apk
+          ls -lh dist
+
+      - name: 核对三份安装包为同一发布证书
+        run: |
+          set -euo pipefail
+          signer="${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools/35.0.0/apksigner"
+          fp=""
+          for apk in dist/*.apk; do
+            if ! out="$("$signer" verify --print-certs "$apk")"; then
+              echo "::error::${apk} 签名校验失败。不会改用随机调试证书。"
+              exit 1
+            fi
+            printf '%s\n' "$out"
+            if printf '%s\n' "$out" | grep -q "CN=Android Debug"; then
+              echo "::error::${apk} 仍是 Android Debug 证书。"
+              exit 1
+            fi
+            this="$(printf '%s\n' "$out" | sed -n 's/.*SHA-256 digest: //p' | head -1)"
+            if [ -z "$this" ]; then
+              echo "::error::${apk} 没有证书指纹。"
+              exit 1
+            fi
+            if [ -z "$fp" ]; then
+              fp="$this"
+            elif [ "$this" != "$fp" ]; then
+              echo "::error::三份安装包证书不一致。"
+              exit 1
+            fi
+          done
+
+      - name: 上传 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: geren-yingyuan-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: 去掉同标签的旧发布
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/releases?per_page=100" \
+            --jq '.[] | select(.tag_name=="${{ github.ref_name }}") | .id' \
+            | while read -r id; do
+                [ -n "$id" ] || continue
+                gh api -X DELETE "repos/${{ github.repository }}/releases/${id}"
+              done
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          overwrite_files: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

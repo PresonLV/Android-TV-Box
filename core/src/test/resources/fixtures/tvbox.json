@@ -1,0 +1,43 @@
+{
+  "spider": "",
+  "wallpaper": "https://example.test/wall.jpg",
+  "sites": [
+    {
+      "key": "xml_demo",
+      "name": "示例 XML",
+      "type": 0,
+      "api": "https://example.test/xml",
+      "searchable": 1,
+      "quickSearch": 0,
+      "filterable": 1
+    },
+    {
+      "key": "json_demo",
+      "name": "示例 JSON",
+      "type": "1",
+      "api": "https://example.test/json",
+      "searchable": 1
+    },
+    {
+      "key": "csp_spider",
+      "name": "爬虫源",
+      "type": 3,
+      "api": "csp_Demo",
+      "searchable": 1,
+      "ext": "x"
+    },
+    {
+      "key": "blank",
+      "name": "空地址",
+      "type": 1,
+      "api": ""
+    }
+  ],
+  "parses": [
+    {"name": "JSON 解析", "type": 0, "url": "https://example.test/parse?url="},
+    {"name": "嗅探", "type": 1, "url": "https://example.test/sniff?url="}
+  ],
+  "lives": [
+    {"name": "直播", "type": 0, "url": "https://example.test/live.m3u", "epg": "https://example.test/epg.xml"}
+  ]
+}

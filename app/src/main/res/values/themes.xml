@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.JianXia" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0C0E13</item>
+        <item name="android:colorBackground">#0C0E13</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+    </style>
+</resources>
