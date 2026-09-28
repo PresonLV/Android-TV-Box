@@ -112,6 +112,12 @@ class SpiderTest {
         assertEquals(SpiderMode.JS, js.spiderMode)
         assertEquals("https://example.test/box/drpy2.min.js", js.api)
         assertEquals("https://example.test/box/rule.js", js.spiderExt)
+        val drive = TvBoxConfigParser.parse(
+            """{"sites":[{"key":"w","name":"玩偶","type":3,"api":"csp_WoGG","ext":{"Cloud-drive":"tvfan/Cloud-drive.txt","token":"t"}}]}""",
+            "http://www.example.test/tv",
+        ).sites.single()
+        assertTrue(drive.spiderExt.contains("http://www.example.test/tvfan/Cloud-drive.txt"))
+        assertTrue(drive.spiderExt.contains("\"token\":\"t\""))
         assertEquals(SiteKind.MACCMS_JSON, config.sites.first { it.key == "plain" }.kind)
         assertEquals("https://example.test/box/base.jar;md5;aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", config.spider)
     }

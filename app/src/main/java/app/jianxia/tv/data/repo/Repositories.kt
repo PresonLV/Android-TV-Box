@@ -351,6 +351,7 @@ class LibraryRepository(private val dao: LibraryDao) {
         positionMs: Long,
         durationMs: Long,
         lineId: String,
+        keep: Int = 30,
     ) {
         dao.upsertHistory(
             HistoryEntity(
@@ -367,6 +368,7 @@ class LibraryRepository(private val dao: LibraryDao) {
                 updatedAt = System.currentTimeMillis(),
             ),
         )
+        dao.historyKeys().drop(keep.coerceIn(10, 200)).forEach { dao.deleteHistory(it) }
     }
 
     suspend fun deleteHistory(key: String) = dao.deleteHistory(key)
@@ -708,15 +710,21 @@ class CatalogRepository(
         } else {
             settings.searchTimeoutSec * 1000L
         }
-        val outcome = ParallelAggregator.collect(timeout, sites.map { site ->
+        val pool = if (!settings.aggregateSearch) {
+            val home = sites.firstOrNull { it.key == settings.defaultSourceId }
+            if (home != null) listOf(home) else sites
+        } else {
+            sites
+        }
+        val outcome = ParallelAggregator.collect(timeout, pool.map { site ->
             suspend { registry.create(site).search(query).items }
         })
         val merged = mergeVodItems(outcome.items).take(60)
         store.putAll(merged)
         val missed = outcome.failureCount + outcome.timedOutCount
         val message = when {
-            merged.isEmpty() && missed > 0 -> "来源没有及时响应"
-            merged.isEmpty() -> "没有找到「$query」"
+            merged.isEmpty() && missed > 0 -> "没有找到片源「$query」。$missed 个来源没有返回内容（超时或加载失败）"
+            merged.isEmpty() -> "没有找到片源「$query」"
             missed > 0 -> "找到 ${merged.size} 条，另有 $missed 个来源没有响应"
             else -> "找到 ${merged.size} 条"
         }

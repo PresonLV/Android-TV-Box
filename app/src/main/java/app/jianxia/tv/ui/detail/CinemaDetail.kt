@@ -58,10 +58,17 @@ internal fun CinemaDetail(
     vm: DetailViewModel,
     onPlay: () -> Unit,
     onBack: () -> Unit,
+    onSearch: (String) -> Unit,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val speeds by vm.speeds.collectAsStateWithLifecycle()
-    val settings by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    val app = LocalApp.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val showParse = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val parses = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<List<app.jianxia.core.model.ParseDef>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        parses.value = runCatching { app.catalog.parses() }.getOrDefault(emptyList())
+    }
     LaunchedEffect(state.item?.key, state.sourceIndex) {
         if (state.item != null) vm.refreshSpeeds()
     }
@@ -94,7 +101,20 @@ internal fun CinemaDetail(
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 14.dp)) {
                                     TvButton(if (state.resumeMs > 10_000) "继续播放" else "播放", primary = true) { vm.play(onPlay) }
                                     TvButton(if (state.favorite) "已收藏" else "收藏", onClick = vm::toggleFavorite)
+                                    TvButton("换源") {
+                                        val count = item.variants.size
+                                        if (count > 1) vm.source((state.sourceIndex + 1) % count)
+                                    }
+                                    TvButton("搜索") { onSearch(item.title) }
+                                    TvButton("解析") { showParse.value = !showParse.value }
                                     TvButton("返回", onClick = onBack)
+                                }
+                                if (showParse.value) {
+                                    Text(
+                                        if (parses.value.isEmpty()) "没有配置解析接口" else parses.value.joinToString("、") { it.name },
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        modifier = Modifier.padding(top = 8.dp),
+                                    )
                                 }
                             }
                         }

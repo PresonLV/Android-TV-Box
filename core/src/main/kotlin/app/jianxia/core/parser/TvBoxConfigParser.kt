@@ -153,8 +153,38 @@ private fun resolveJar(baseUrl: String?, raw: String): String {
 
 private fun resolveExt(baseUrl: String?, raw: String): String {
     val value = raw.trim()
-    if (value.isEmpty() || value.startsWith("{") || value.startsWith("[")) return value
-    return resolveAgainst(baseUrl, value)
+    if (value.isEmpty()) return value
+    if (value.startsWith("{") || value.startsWith("[")) return resolveExtJson(baseUrl, value)
+    return resolveResource(baseUrl, value)
+}
+
+/** 配置里的 ext 经常是相对路径，爬虫会把它当成请求地址。 */
+private fun resolveExtJson(baseUrl: String?, raw: String): String {
+    val element = runCatching { Json.parseToJsonElement(raw) }.getOrNull() ?: return raw
+    return resolveExtElement(baseUrl, element).toString()
+}
+
+private fun resolveExtElement(baseUrl: String?, element: JsonElement): JsonElement = when (element) {
+    is JsonObject -> JsonObject(element.mapValues { (_, value) -> resolveExtElement(baseUrl, value) })
+    is JsonArray -> JsonArray(element.map { resolveExtElement(baseUrl, it) })
+    is JsonPrimitive -> {
+        val text = element.content
+        if (!element.isString || text.isBlank()) element else JsonPrimitive(resolveResource(baseUrl, text))
+    }
+    else -> element
+}
+
+private fun resolveResource(baseUrl: String?, raw: String): String {
+    val value = raw.trim()
+    if (value.isEmpty() || baseUrl.isNullOrBlank()) return value
+    if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("file:") || value.startsWith("data:")) {
+        return value
+    }
+    if (value.startsWith("//")) return "https:$value"
+    val path = value.startsWith("./") || value.startsWith("../") || value.startsWith("/") ||
+        (value.contains('/') && !value.contains(' ') && !value.contains('+'))
+    if (!path) return value
+    return runCatching { java.net.URI(baseUrl).resolve(value).toString() }.getOrDefault(value)
 }
 
 private fun JsonObject.flag(key: String, default: Boolean): Boolean {

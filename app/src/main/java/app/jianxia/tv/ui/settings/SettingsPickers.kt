@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,29 +77,142 @@ import kotlinx.coroutines.launch
 internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
     val app = LocalApp.current
     val palette = LocalPalette.current
+    val context = LocalContext.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        Column(Modifier.weight(1.3f).verticalScroll(rememberScrollState())) {
-            Text("设置", color = palette.text, fontSize = 28.sp)
-            Text("用方向键选择，确认键打开。每一项都会显示当前值。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 16.dp))
-            SettingRow("外观", "${settings.modeLabel()} · ${settings.accentLabel()} · ${settings.wallpaperLabel()}") { onOpen("look") }
-            SettingRow("首页", "${settings.layoutLabel()} · ${settings.posterLabel()}海报 · ${settings.homeRows.count { it.visible }} 行") { onOpen("home") }
-            SettingRow("播放", "${settings.engineLabel()} · ${settings.speedLabel()} · ${settings.aspectLabel()}") { onOpen("play") }
-            SettingRow("豆瓣与播放增强", if (settings.skipHlsAds) "去广告开" else "去广告关") { onOpen("enhance") }
-            SettingRow("远程爬虫", if (settings.spiderEnabled) "已打开" else "已关闭") { onOpen("spider") }
-            SettingRow("接口与线路", if (settings.autoLineSelect) "自动选线开" else "自动选线关") { onOpen("lines") }
-            SettingRow("数据与备份", "导入、导出") { onOpen("backup") }
-            SettingRow("关于", versionName) { onOpen("about") }
-        }
-        Column(Modifier.weight(0.9f).padding(start = 24.dp)) {
-            Text("当前外观", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
-            Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(18.dp))) {
-                WallpaperLayer(settings, Modifier.fillMaxSize())
-                Text("个人影院", color = palette.text, fontSize = 28.sp, modifier = Modifier.padding(16.dp))
+    val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
+    val scope = rememberCoroutineScope()
+    var note by remember { mutableStateOf("按确认键修改。焦点移动不会切换页面。") }
+    val config = sources.firstOrNull { it.enabled }?.url?.let { shorten(it) } ?: "未配置"
+    val tiles = listOf(
+        Tile("配置地址", config) { onOpen("sources") },
+        Tile("配置历史", "${sources.size} 个") { onOpen("sources") },
+        Tile("首页站源", homeSiteLabel(sources, settings.defaultSourceId)) { onOpen("source") },
+        Tile("下次进入", settings.startupLabel()) { onOpen("startup") },
+        Tile("首页推荐", if (settings.homeRecommend == "site") "站点首页" else "豆瓣热播") {
+            scope.launch { app.settings.update { it.copy(homeRecommend = if (it.homeRecommend == "site") "douban" else "site") } }
+        },
+        Tile("首页多行", if (settings.homeMultiRow) "是" else "否") {
+            scope.launch { app.settings.update { it.copy(homeMultiRow = !it.homeMultiRow) } }
+        },
+        Tile("搜索展示", if (settings.searchStyle == "list") "列表" else "缩略图") {
+            scope.launch { app.settings.update { it.copy(searchStyle = if (it.searchStyle == "list") "poster" else "list") } }
+        },
+        Tile("聚合搜索", if (settings.aggregateSearch) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(aggregateSearch = !it.aggregateSearch) } }
+        },
+        Tile("播放器", settings.engineLabel()) { onOpen("engine") },
+        Tile("解码方式", settings.decoderLabel()) { onOpen("decoder") },
+        Tile("去广告", if (settings.skipHlsAds) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(skipHlsAds = !it.skipHlsAds) } }
+        },
+        Tile("弹幕", if (settings.danmakuEnabled) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(danmakuEnabled = !it.danmakuEnabled) } }
+        },
+        Tile("弹幕地址", settings.danmakuApiUrl.ifBlank { "默认" }.let(::shorten)) { onOpen("enhance") },
+        Tile("渲染方式", if (settings.videoRender == "surface") "SurfaceView" else "TextureView") {
+            scope.launch { app.settings.update { it.copy(videoRender = if (it.videoRender == "surface") "texture" else "surface") } }
+        },
+        Tile("自动换线", if (settings.autoLineSelect) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(autoLineSelect = !it.autoLineSelect) } }
+        },
+        Tile("安全DNS", when (settings.safeDns) {
+            "off" -> "关闭"
+            "on" -> "开启"
+            else -> "自动"
+        }) {
+            scope.launch {
+                app.settings.update {
+                    val next = when (it.safeDns) {
+                        "auto" -> "on"
+                        "on" -> "off"
+                        else -> "auto"
+                    }
+                    it.copy(safeDns = next)
+                }
+            }
+        },
+        Tile("嗅探WebView", if (settings.sniffEnabled) "系统自带" else "关闭") {
+            scope.launch { app.settings.update { it.copy(sniffEnabled = !it.sniffEnabled) } }
+        },
+        Tile("历史合并", if (settings.mergeHistory) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(mergeHistory = !it.mergeHistory) } }
+        },
+        Tile("历史记录", "${settings.historyLimit}条") {
+            scope.launch {
+                app.settings.update {
+                    val next = when (it.historyLimit) {
+                        20 -> 30
+                        30 -> 50
+                        50 -> 100
+                        else -> 20
+                    }
+                    it.copy(historyLimit = next)
+                }
+            }
+        },
+        Tile("换张壁纸", settings.wallpaperLabel()) {
+            scope.launch {
+                val ids = AppearanceCatalog.wallpapers.map { it.id }
+                val index = ids.indexOf(settings.wallpaperId).let { if (it < 0) 0 else (it + 1) % ids.size }
+                app.settings.update { it.withAppearance(backgroundType = "builtin", wallpaperId = ids[index]) }
+            }
+        },
+        Tile("重置壁纸", "默认") {
+            scope.launch { app.settings.update { it.withAppearance(backgroundType = "builtin", wallpaperId = "ink") } }
+        },
+        Tile("画面缩放", settings.aspectLabel()) { onOpen("aspect") },
+        Tile("窗口预览", if (settings.windowPreview) "开启" else "关闭") {
+            scope.launch { app.settings.update { it.copy(windowPreview = !it.windowPreview) } }
+        },
+        Tile("缓存", "爬虫与海报") { note = "海报和爬虫缓存在本机。用旁边的「清空缓存」删掉后，下次进入会重新下载。" },
+        Tile("清空缓存", "立即") {
+            scope.launch {
+                app.spiders.wipe()
+                runCatching { context.cacheDir.resolve("posters").deleteRecursively() }
+                note = "缓存已清空。下次进入站点会重新下载爬虫。"
+            }
+        },
+        Tile("数据备份", "导入、导出") { onOpen("backup") },
+        Tile("远程爬虫", if (settings.spiderEnabled) "已打开" else "已关闭") { onOpen("spider") },
+        Tile("关于", versionName) { onOpen("about") },
+    )
+    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp, start = 8.dp))
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            items(tiles, key = { it.label }) { tile ->
+                Surface(
+                    onClick = tile.onClick,
+                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = palette.surface.copy(alpha = 0.72f),
+                        focusedContainerColor = palette.surface2,
+                    ),
+                    border = ClickableSurfaceDefaults.border(
+                        focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(8.dp)),
+                    ),
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(tile.label, color = palette.text, fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(tile.value + "  >", color = palette.muted, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                }
             }
         }
     }
 }
+
+private data class Tile(val label: String, val value: String, val onClick: () -> Unit)
+
+private fun shorten(value: String): String = if (value.length <= 22) value else value.take(10) + "…" + value.takeLast(8)
 
 @Composable
 internal fun LookHub(onOpen: (String) -> Unit) {
@@ -587,6 +703,11 @@ private fun Stepper(label: String, value: Int, max: Int, onChange: (Int) -> Unit
             TvButton("增大") { onChange((value + 4).coerceAtMost(max)) }
         }
     }
+}
+
+private fun homeSiteLabel(sources: List<app.jianxia.tv.data.db.SourceEntity>, id: String): String {
+    sources.firstOrNull { it.id == id }?.name?.let { return it }
+    return id.substringAfter(':', "").ifBlank { "全部" }
 }
 
 private fun <T> List<T>.move(index: Int, delta: Int): List<T> {

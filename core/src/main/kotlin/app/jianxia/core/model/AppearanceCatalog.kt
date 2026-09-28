@@ -63,11 +63,11 @@ object AppearanceCatalog {
     )
     val engines = listOf(
         AppearanceItem("vlc", "VLC"),
-        AppearanceItem("exo", "系统 (ExoPlayer)"),
+        AppearanceItem("exo", "EXO播放器"),
     )
     val decoders = listOf(
-        AppearanceItem("hardware", "硬件"),
-        AppearanceItem("software", "软件"),
+        AppearanceItem("hardware", "硬解"),
+        AppearanceItem("software", "软解"),
     )
     val speeds = listOf(
         AppearanceItem("0.75", "0.75x"),
@@ -125,9 +125,9 @@ fun AppSettings.layoutLabel(): String = if (homeLayout == "classic") "经典" el
 
 fun AppSettings.motionLabel(): String = if (reduceMotion) "关闭" else "流畅"
 
-fun AppSettings.engineLabel(): String = if (playerEngine == "exo") "系统 (ExoPlayer)" else "VLC"
+fun AppSettings.engineLabel(): String = if (playerEngine == "exo") "EXO播放器" else "VLC"
 
-fun AppSettings.decoderLabel(): String = if (decoder == "software") "软件" else "硬件"
+fun AppSettings.decoderLabel(): String = if (decoder == "software") "软解" else "硬解"
 
 fun AppSettings.speedLabel(): String = when {
     defaultSpeed < 0.9f -> "0.75x"

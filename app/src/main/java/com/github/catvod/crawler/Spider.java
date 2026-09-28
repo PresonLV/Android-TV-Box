@@ -2,14 +2,28 @@ package com.github.catvod.crawler;
 
 import android.content.Context;
 
+import com.github.catvod.net.OkHttp;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import okhttp3.Dns;
+import okhttp3.OkHttpClient;
 
 /**
  * 远程 JAR 会继承这个空类。这里只保留公开接口，不包含任何现成爬虫实现。
  */
 public class Spider {
+    public static OkHttpClient client() {
+        return OkHttp.client();
+    }
+
+    public static Dns safeDns() {
+        Dns dns = client().dns();
+        return dns == null ? Dns.SYSTEM : dns;
+    }
+
     public void init(Context context) {
     }
 

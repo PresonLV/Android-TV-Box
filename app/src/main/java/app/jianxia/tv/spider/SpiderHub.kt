@@ -29,11 +29,12 @@ class SpiderHub(
     private val http: NetClient,
     private val timeoutMs: () -> Long,
 ) {
+    private val appContext = context.applicationContext
     @Volatile
     var enabled: Boolean = false
         private set
 
-    private val jars = JarEngine(context.applicationContext, JarCache(java.io.File(context.cacheDir, "spiders"), http.http))
+    private val jars = JarEngine(appContext, JarCache(java.io.File(appContext.cacheDir, "spiders"), http.http))
     private val scripts = ConcurrentHashMap<String, JsEngine>()
     private val sites = ConcurrentHashMap<String, VodSiteDef>()
     private val store = MemorySpiderStore()
@@ -55,6 +56,18 @@ class SpiderHub(
         }
     }
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    fun wipe() {
+        jars.clear()
+        scripts.values.forEach { runCatching { it.close() } }
+        scripts.clear()
+        sites.clear()
+        runCatching { java.io.File(appContext.cacheDir, "spiders").deleteRecursively() }
+        runCatching {
+            appContext.getDir("spider_libs", Context.MODE_PRIVATE).listFiles()?.forEach { it.deleteRecursively() }
+        }
+        runCatching { java.io.File(appContext.codeCacheDir, "spider-opt").deleteRecursively() }
+    }
 
     fun setEnabled(on: Boolean) {
         enabled = on
@@ -162,7 +175,7 @@ class SpiderHub(
     private fun <T> call(def: VodSiteDef, block: () -> T): T {
         if (!enabled) throw IllegalStateException("爬虫已关闭")
         val cold = def.spiderMode != SpiderMode.JS && (jars.preparing() || !jars.hot(def))
-        val wait = if (cold) 80_000L else timeoutMs().coerceIn(8_000L, 20_000L)
+        val wait = if (cold) 180_000L else timeoutMs().coerceIn(8_000L, 20_000L)
         val future = pool.submit(Callable {
             if (!enabled) throw IllegalStateException("爬虫已关闭")
             try {

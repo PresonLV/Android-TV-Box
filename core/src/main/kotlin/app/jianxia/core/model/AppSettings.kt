@@ -73,6 +73,16 @@ data class AppSettings(
     val spiderEnabled: Boolean = false,
     val showLiveOnVod: Boolean = false,
     val playerEngineChosen: Boolean = false,
+    val homeRecommend: String = "douban",
+    val homeMultiRow: Boolean = false,
+    val searchStyle: String = "poster",
+    val aggregateSearch: Boolean = true,
+    val videoRender: String = "texture",
+    val safeDns: String = "auto",
+    val sniffEnabled: Boolean = true,
+    val mergeHistory: Boolean = true,
+    val historyLimit: Int = 30,
+    val windowPreview: Boolean = false,
 ) {
     fun sanitized(): AppSettings = copy(
         themeMode = when (themeMode) {
@@ -139,6 +149,14 @@ data class AppSettings(
         subtitleSize = if (subtitleSize in SIZES) subtitleSize else "medium",
         subtitlePosition = if (subtitlePosition in POSITIONS) subtitlePosition else "bottom",
         subtitleOffsetMs = subtitleOffsetMs.coerceIn(-60_000, 60_000),
+        homeRecommend = if (homeRecommend == "site") "site" else "douban",
+        searchStyle = if (searchStyle == "list") "list" else "poster",
+        videoRender = if (videoRender == "surface") "surface" else "texture",
+        safeDns = when (safeDns) {
+            "off", "on" -> safeDns
+            else -> "auto"
+        },
+        historyLimit = historyLimit.coerceIn(10, 200),
     )
 
     companion object {

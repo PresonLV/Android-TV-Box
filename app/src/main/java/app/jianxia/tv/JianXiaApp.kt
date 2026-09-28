@@ -7,6 +7,7 @@ import app.jianxia.core.pinyin.PinyinIme
 import app.jianxia.tv.data.db.AppDatabase
 import app.jianxia.tv.data.lan.LanServer
 import app.jianxia.tv.data.net.NetClient
+import app.jianxia.tv.data.net.ResilientDns
 import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.CatalogRepository
 import app.jianxia.tv.data.repo.CatalogStore
@@ -42,7 +43,10 @@ class JianXiaApp : Application() {
             runCatching { container.sources.ensurePublicChannels(container.settings) }
         }
         jobs.launch {
-            container.settings.state.collect { container.spiders.setEnabled(it.spiderEnabled) }
+            container.settings.state.collect {
+                container.spiders.setEnabled(it.spiderEnabled)
+                ResilientDns.mode = it.safeDns
+            }
         }
     }
 }

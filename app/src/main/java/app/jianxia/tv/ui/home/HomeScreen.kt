@@ -80,6 +80,11 @@ fun HomeScreen(
     onDouban: () -> Unit,
     onSearch: (String) -> Unit,
     onBrowseSite: (String) -> Unit,
+    onHistory: () -> Unit,
+    onLive: () -> Unit,
+    onFavorites: () -> Unit,
+    onPush: () -> Unit,
+    onSearchPage: () -> Unit,
 ) {
     val app = LocalApp.current
     val palette = LocalPalette.current
@@ -100,6 +105,18 @@ fun HomeScreen(
     }
     val noTitles = state.catalog?.rows?.values?.none { it.isNotEmpty() } != false
     val showEmpty = sources.any { it.enabled } && noTitles && history.isEmpty() && favorites.isEmpty() && !state.loading
+    WarehouseHome(
+        onOpen = onOpen,
+        onSearchTitle = onSearch,
+        onHistory = onHistory,
+        onLive = onLive,
+        onSearchPage = onSearchPage,
+        onPush = onPush,
+        onFavorites = onFavorites,
+        onSettings = onSettings,
+        onSites = { showSites = true },
+    )
+    return
     if (settings.homeLayout == "cinema") {
         CinemaHome(
             app = app,

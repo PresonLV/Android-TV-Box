@@ -260,16 +260,16 @@ private fun lineId(item: MergedVod, sourceIndex: Int, lineIndex: Int): String? {
 }
 
 @Composable
-fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
-    val palette = LocalPalette.current
-    val settings by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit, onSearch: (String) -> Unit = {}) {
     val vm: DetailViewModel = appViewModel { DetailViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(encodedKey) { vm.open(encodedKey) }
-    if (settings.homeLayout == "cinema") {
-        CinemaDetail(vm, onPlay, onBack)
-        return
-    }
+    CinemaDetail(vm, onPlay, onBack, onSearch)
+    if (false) {
+        val palette = LocalPalette.current
+        val settings by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+        settings.hashCode()
+        palette.hashCode()
     BackHandler(onBack = onBack)
     val item = state.item
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
@@ -344,5 +344,6 @@ fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit) {
                 DoubanComments(state.comments, state.commentsMore, vm::moreComments)
             }
         }
+    }
     }
 }

@@ -33,6 +33,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -164,6 +166,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         kernel = parseEngine(preferredEngineWire(settings.playerEngine, settings.playerEngineChosen, Build.SUPPORTED_ABIS.toList()))
         speed = settings.defaultSpeed
         aspect = settings.aspect
+        created.setSurfaceKind(settings.videoRender)
         created.setEngine(kernel, software)
         created.setSpeed(speed)
         created.setAspect(aspect)
@@ -549,13 +552,19 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         introApplied = false
         viewModelScope.launch {
             val media = try {
-                resolve(candidate)
+                withTimeout(18_000) { resolve(candidate) }
             } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                _ui.update { it.copy(hint = UserFacingError.message(error)) }
+                if (error is CancellationException && error !is TimeoutCancellationException) throw error
+                if (token != playToken) return@launch
+                val reason = if (error is TimeoutCancellationException) "超过 18 秒没有画面" else UserFacingError.message(error)
+                failover(reason.ifBlank { "没有找到片源" })
                 return@launch
             }
             if (token != playToken) return@launch
+            if (media.url.isBlank()) {
+                failover("没有找到片源")
+                return@launch
+            }
             val settings = app.settings.state.value
             val open = StreamOpen(
                 url = media.url,
@@ -627,6 +636,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             url = resolvePlayUrl(url, parses, app.http)
         }
         if (!needsSniff(url, parse, jx)) return url
+        if (!app.settings.state.value.sniffEnabled) return url
         val context = uiContext ?: return url
         val sniffed = runCatching { WebSniffer.sniff(context, url, headers) }.getOrNull()
         return sniffed?.takeIf { it.isNotBlank() } ?: url
@@ -798,13 +808,16 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         val candidate = current ?: return
         val position = host?.positionMs ?: _ui.value.positionMs
         if (position < 1_000) return
+        val settings = app.settings.state.value
+        val stored = if (settings.mergeHistory) currentItem else currentItem.copy(key = currentItem.key + "@" + candidate.sourceKey)
         app.library.saveHistory(
-            item = currentItem,
+            item = stored,
             episodeIndex = episodeIndex,
             episodeName = candidate.episodeName,
             positionMs = position,
             durationMs = host?.durationMs ?: 0,
             lineId = candidate.id,
+            keep = settings.historyLimit,
         )
     }
 

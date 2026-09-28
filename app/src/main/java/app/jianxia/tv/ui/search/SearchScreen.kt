@@ -198,6 +198,16 @@ fun SearchScreen(onOpen: (String) -> Unit) {
             when {
                 state.loading -> CircularProgressIndicator(color = palette.accent)
                 state.query.isBlank() -> Text("用遥控器输入片名。拼音会给出常用字，也可以切换成 ABC。", color = palette.muted, fontSize = 16.sp)
+                state.results.isEmpty() -> Column {
+                    Text("没有找到片源", color = palette.text, fontSize = 28.sp, fontWeight = FontWeight.Medium)
+                    Text(state.message ?: "这些来源里没有这部片子。", color = palette.muted, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+                settings.searchStyle == "list" -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(state.message.orEmpty(), color = palette.muted, modifier = Modifier.padding(bottom = 10.dp))
+                    state.results.forEach { item ->
+                        TvButton(listOfNotNull(item.title, item.year, item.remarks).joinToString("  ·  ")) { onOpen(item.key) }
+                    }
+                }
                 else -> {
                     Text(state.message.orEmpty(), color = palette.muted, modifier = Modifier.padding(bottom = 10.dp))
                     LazyVerticalGrid(

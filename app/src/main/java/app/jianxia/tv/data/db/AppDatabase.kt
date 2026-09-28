@@ -91,8 +91,11 @@ interface SourceDao {
 
 @Dao
 interface LibraryDao {
-    @Query("SELECT * FROM history ORDER BY updatedAt DESC LIMIT 40")
+    @Query("SELECT * FROM history ORDER BY updatedAt DESC LIMIT 200")
     fun observeHistory(): Flow<List<HistoryEntity>>
+
+    @Query("SELECT titleKey FROM history ORDER BY updatedAt DESC")
+    suspend fun historyKeys(): List<String>
 
     @Query("SELECT * FROM history WHERE titleKey = :key")
     suspend fun history(key: String): HistoryEntity?

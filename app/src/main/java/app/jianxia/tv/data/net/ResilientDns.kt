@@ -17,6 +17,12 @@ class ResilientDns : Dns {
     private val executor = Executors.newCachedThreadPool { runnable ->
         Thread(runnable, "jianxia-dns").apply { isDaemon = true }
     }
+
+    /** off 只用系统 DNS，on 优先 DoH，auto 在系统解析失败后再走 DoH。 */
+    companion object {
+        @Volatile
+        var mode: String = "auto"
+    }
     private val resolvers: List<Dns> by lazy {
         listOf(
             doh("https://dns.alidns.com/dns-query", "dns.alidns.com", listOf("223.5.5.5", "223.6.6.6")),
@@ -28,8 +34,12 @@ class ResilientDns : Dns {
     override fun lookup(hostname: String): List<InetAddress> {
         val ascii = runCatching { java.net.IDN.toASCII(hostname) }.getOrDefault(hostname)
         literal(ascii)?.let { return listOf(it) }
+        if (mode == "on") {
+            dohLookup(ascii)?.let { return it }
+        }
         val system = systemLookup(ascii)
         if (system.isNotEmpty()) return system
+        if (mode == "off") throw UnknownHostException(hostname)
         var last: Exception? = null
         for (resolver in resolvers) {
             try {
@@ -40,6 +50,20 @@ class ResilientDns : Dns {
             }
         }
         throw last ?: UnknownHostException(ascii)
+    }
+
+    private fun dohLookup(hostname: String): List<InetAddress>? {
+        var last: Exception? = null
+        for (resolver in resolvers) {
+            try {
+                val found = resolver.lookup(hostname)
+                if (found.isNotEmpty()) return found
+            } catch (error: Exception) {
+                last = error
+            }
+        }
+        if (last != null && mode == "on") return null
+        return null
     }
 
     private fun systemLookup(hostname: String): List<InetAddress> {
