@@ -53,15 +53,18 @@ fun TvButton(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val look by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    val radius = look.cornerRadius.coerceIn(0, 28).dp
+    val alpha = look.tileAlpha.coerceIn(30, 100) / 100f
     Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(radius)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (primary) palette.accent else palette.surface,
+            containerColor = if (primary) palette.accent else palette.surface.copy(alpha = alpha),
             contentColor = if (primary) palette.onAccent else palette.text,
-            focusedContainerColor = if (primary) palette.accent else palette.surface2,
+            focusedContainerColor = if (primary) palette.accent else palette.surface2.copy(alpha = alpha.coerceAtLeast(0.72f)),
             focusedContentColor = if (primary) palette.onAccent else palette.text,
             pressedContainerColor = palette.accent,
             pressedContentColor = palette.onAccent,
@@ -70,7 +73,7 @@ fun TvButton(
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(2.dp, palette.accent),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(radius),
             ),
             focusedDisabledBorder = Border.None,
         ),

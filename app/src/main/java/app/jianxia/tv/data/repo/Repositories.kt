@@ -75,12 +75,41 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun write(settings: AppSettings) {
-        mutex.withLock { persist(settings.sanitized()) }
+        mutex.withLock {
+            val clean = settings.sanitized()
+            val local = storeWallpaper(clean.wallpaperPayload)
+            val next = if (local != null) {
+                clean.copy(backgroundType = "image", backgroundImageUrl = local, wallpaperPayload = "")
+            } else {
+                clean.copy(wallpaperPayload = "")
+            }
+            persist(next)
+        }
+    }
+
+    fun exportSnapshot(): AppSettings {
+        val current = _state.value.copy(wallpaperPayload = "")
+        val image = File(file.parentFile, "diy-wallpaper.img")
+        if (current.backgroundType != "image" || !image.isFile || image.length() > 4_000_000) return current
+        val payload = android.util.Base64.encodeToString(image.readBytes(), android.util.Base64.NO_WRAP)
+        return current.copy(wallpaperPayload = payload)
+    }
+
+    private fun storeWallpaper(payload: String): String? {
+        val encoded = payload.trim()
+        if (encoded.isEmpty()) return null
+        val bytes = runCatching { android.util.Base64.decode(encoded, android.util.Base64.DEFAULT) }.getOrNull() ?: return null
+        if (bytes.isEmpty() || bytes.size > 4_000_000) return null
+        if (android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) == null) return null
+        val image = File(file.parentFile, "diy-wallpaper.img")
+        image.writeBytes(bytes)
+        return image.toURI().toString()
     }
 
     private fun persist(settings: AppSettings) {
-        _state.value = settings
-        file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), settings))
+        val stored = settings.copy(wallpaperPayload = "")
+        _state.value = stored
+        file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), stored))
     }
 
     private fun read(): AppSettings {
@@ -826,7 +855,7 @@ class BackupRepository(
 ) {
     suspend fun export(): String {
         val bundle = BackupBundle(
-            settings = settings.state.value,
+            settings = settings.exportSnapshot(),
             sources = sources.list().map {
                 BackupSource(it.name, it.url, it.kind, it.epgUrl.orEmpty(), it.enabled, it.sortOrder)
             },

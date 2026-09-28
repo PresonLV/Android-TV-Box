@@ -66,6 +66,8 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
         "theme" -> ThemeStudio()
         "wallpaper" -> WallpaperStudio { page = "imageUrl" }
         "imageUrl" -> ImageUrlPage { page = "wallpaper" }
+        "diy" -> DiyStudio { page = "diyImage" }
+        "diyImage" -> ImageUrlPage { page = "diy" }
         "font" -> ChoicePage(
             title = "文字大小",
             choices = AppearanceCatalog.fonts,
@@ -118,6 +120,7 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
 private fun parentPage(page: String): String = when (page) {
     "theme", "wallpaper", "font" -> "look"
     "imageUrl" -> "wallpaper"
+    "diyImage" -> "diy"
     "engine", "decoder", "speed", "aspect", "startup" -> "play"
     "sources", "source", "autoline", "timeout" -> "lines"
     else -> "root"

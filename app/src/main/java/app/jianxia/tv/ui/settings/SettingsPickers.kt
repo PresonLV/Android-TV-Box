@@ -60,6 +60,7 @@ import app.jianxia.core.model.modeLabel
 import app.jianxia.core.model.posterLabel
 import app.jianxia.core.model.resetSection
 import app.jianxia.core.model.speedLabel
+import app.jianxia.core.model.diySummary
 import app.jianxia.core.model.startupLabel
 import app.jianxia.core.model.wallpaperLabel
 import app.jianxia.core.model.withAppearance
@@ -83,6 +84,8 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     var note by remember { mutableStateOf("按确认键修改。焦点移动不会切换页面。") }
     val config = sources.firstOrNull { it.enabled }?.url?.let { shorten(it) } ?: "未配置"
+    val radius = settings.cornerRadius.coerceIn(0, 28).dp
+    val tileAlpha = settings.tileAlpha.coerceIn(30, 100) / 100f
     val tiles = listOf(
         Tile("配置地址", config) { onOpen("sources") },
         Tile("配置历史", "${sources.size} 个") { onOpen("sources") },
@@ -164,6 +167,7 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
         Tile("窗口预览", if (settings.windowPreview) "开启" else "关闭") {
             scope.launch { app.settings.update { it.copy(windowPreview = !it.windowPreview) } }
         },
+        Tile("界面DIY", settings.diySummary()) { onOpen("diy") },
         Tile("缓存", "爬虫与海报") { note = "海报和爬虫缓存在本机。用旁边的「清空缓存」删掉后，下次进入会重新下载。" },
         Tile("清空缓存", "立即") {
             scope.launch {
@@ -187,13 +191,13 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
                 Surface(
                     onClick = tile.onClick,
                     modifier = Modifier.fillMaxWidth().height(72.dp),
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(radius)),
                     colors = ClickableSurfaceDefaults.colors(
-                        containerColor = palette.surface.copy(alpha = 0.72f),
+                        containerColor = palette.surface.copy(alpha = tileAlpha),
                         focusedContainerColor = palette.surface2,
                     ),
                     border = ClickableSurfaceDefaults.border(
-                        focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(8.dp)),
+                        focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(radius)),
                     ),
                 ) {
                     Row(
@@ -599,7 +603,7 @@ private fun LayoutPreview(
 }
 
 @Composable
-private fun ChoiceCard(
+internal fun ChoiceCard(
     label: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -630,7 +634,7 @@ private fun ChoiceCard(
 }
 
 @Composable
-private fun SwatchCard(
+internal fun SwatchCard(
     label: String,
     hex: String,
     selected: Boolean,
@@ -663,7 +667,7 @@ private fun SwatchCard(
 }
 
 @Composable
-private fun Stepper(label: String, value: Int, max: Int, onChange: (Int) -> Unit) {
+internal fun Stepper(label: String, value: Int, max: Int, min: Int = 0, step: Int = 4, onChange: (Int) -> Unit) {
     val palette = LocalPalette.current
     var focused by remember { mutableStateOf(false) }
     Column(Modifier.padding(top = 12.dp).fillMaxWidth()) {
@@ -680,10 +684,9 @@ private fun Stepper(label: String, value: Int, max: Int, onChange: (Int) -> Unit
                 .focusable()
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    val step = 4
                     when (event.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            onChange((value - step).coerceAtLeast(0))
+                            onChange((value - step).coerceAtLeast(min))
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
@@ -694,13 +697,14 @@ private fun Stepper(label: String, value: Int, max: Int, onChange: (Int) -> Unit
                     }
                 },
         ) {
+            val span = (max - min).coerceAtLeast(1)
             Box(
-                Modifier.fillMaxWidth(if (max == 0) 0f else value / max.toFloat()).height(28.dp).background(palette.accent),
+                Modifier.fillMaxWidth(((value - min).coerceAtLeast(0)) / span.toFloat()).height(28.dp).background(palette.accent),
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            TvButton("减小") { onChange((value - 4).coerceAtLeast(0)) }
-            TvButton("增大") { onChange((value + 4).coerceAtMost(max)) }
+            TvButton("减小") { onChange((value - step).coerceAtLeast(min)) }
+            TvButton("增大") { onChange((value + step).coerceAtMost(max)) }
         }
     }
 }

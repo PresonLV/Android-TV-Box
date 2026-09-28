@@ -50,6 +50,7 @@ import app.jianxia.core.model.AppSettings
 import app.jianxia.core.model.FilterGroup
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.SiteKind
+import app.jianxia.core.model.UiDiy
 import app.jianxia.core.model.VodClass
 import app.jianxia.core.model.VodSiteDef
 import app.jianxia.core.spider.LiveSites
@@ -71,8 +72,9 @@ private data class ShelfCard(
     val key: String,
     val title: String,
     val image: String?,
-    val badge: String?,
-    val corner: String?,
+    val hot: String?,
+    val year: String?,
+    val quality: String?,
     val score: String?,
     val search: Boolean,
 )
@@ -118,6 +120,26 @@ internal fun WarehouseHome(
     }
     val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}" }
     val site = sites.firstOrNull { it.key == settings.defaultSourceId } ?: sites.firstOrNull()
+    LaunchedEffect(classes) {
+        if (classes.isEmpty()) return@LaunchedEffect
+        val incoming = classes.map { it.id to it.name }
+        val merged = UiDiy.mergeTabs(app.settings.state.value.homeTabs, incoming)
+        if (merged.map { it.id } != app.settings.state.value.homeTabs.map { it.id }) {
+            app.settings.update { it.copy(homeTabs = UiDiy.mergeTabs(it.homeTabs, incoming)) }
+        }
+    }
+    val columns = settings.posterColumns
+    val tabs = UiDiy.visibleTabs(settings.homeTabs, classes.map { it.id to it.name })
+    val actions = UiDiy.actionsOf(settings).filter { it.visible }
+    LaunchedEffect(tabs.map { it.id }.joinToString(), tab) {
+        val ids = tabs.map { if (it.id == "home") HOME_TAB else it.id }
+        if (tab !in ids) {
+            tab = ids.firstOrNull() ?: HOME_TAB
+            page = 1
+            cards = emptyList()
+            showFilters = false
+        }
+    }
 
     LaunchedEffect(fingerprint, settings.defaultSourceId) {
         try {
@@ -229,25 +251,24 @@ internal fun WarehouseHome(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TvButton(site?.name ?: "选择首页站源", primary = true) { picker = true }
-            Text(now, color = palette.muted, fontSize = 16.sp)
+            if (settings.showClock) Text(now, color = palette.muted, fontSize = 16.sp)
         }
         Row(
             Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            val homeSelected = tab == HOME_TAB
-            SelectChip(if (homeSelected) "主页" else "主页", homeSelected) {
-                if (tab != HOME_TAB) {
-                    tab = HOME_TAB
-                    page = 1
-                    cards = emptyList()
-                    showFilters = false
-                }
-            }
-            classes.take(12).forEach { item ->
-                val selected = tab == item.id
-                SelectChip(if (selected) "${item.name}  ▽" else item.name, selected) {
-                    if (tab == item.id) {
+            tabs.forEach { item ->
+                val selected = if (item.id == "home") tab == HOME_TAB else tab == item.id
+                val label = if (selected && item.id != "home") "${item.title}  ▽" else item.title
+                SelectChip(label, selected) {
+                    if (item.id == "home") {
+                        if (tab != HOME_TAB) {
+                            tab = HOME_TAB
+                            page = 1
+                            cards = emptyList()
+                            showFilters = false
+                        }
+                    } else if (tab == item.id) {
                         showFilters = !showFilters
                     } else {
                         tab = item.id
@@ -263,12 +284,18 @@ internal fun WarehouseHome(
             Modifier.padding(start = 28.dp, end = 28.dp, top = 10.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            TvButton("历史", onClick = onHistory)
-            TvButton("直播", onClick = onLive)
-            TvButton("搜索", onClick = onSearchPage)
-            TvButton("推送", onClick = onPush)
-            TvButton("收藏", onClick = onFavorites)
-            TvButton("设置", onClick = onSettings)
+            actions.forEach { action ->
+                TvButton(action.title) {
+                    when (action.id) {
+                        "history" -> onHistory()
+                        "live" -> onLive()
+                        "search" -> onSearchPage()
+                        "push" -> onPush()
+                        "favorite" -> onFavorites()
+                        "settings" -> onSettings()
+                    }
+                }
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
@@ -300,7 +327,7 @@ internal fun WarehouseHome(
                         }
                     }
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(5),
+                        columns = GridCells.Fixed(columns),
                         contentPadding = PaddingValues(start = 28.dp, end = 28.dp, bottom = if (showFilters) 180.dp else 24.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -308,12 +335,13 @@ internal fun WarehouseHome(
                     ) {
                         if (settings.homeMultiRow && strips.isNotEmpty() && tab == HOME_TAB) {
                             strips.forEach { (title, row) ->
-                                item(span = { GridItemSpan(5) }) {
+                                item(span = { GridItemSpan(columns) }) {
                                     Text(title, color = palette.text, fontSize = 16.sp)
                                 }
-                                items(row.take(5), key = { "strip-$title-${it.key}" }) { card ->
+                                items(row.take(columns), key = { "strip-$title-${it.key}" }) { card ->
                                     ShelfPoster(
                                         card = card,
+                                        settings = settings,
                                         modifier = Modifier.fillMaxWidth(),
                                         preview = settings.windowPreview,
                                         onFocus = { focused = it },
@@ -326,6 +354,7 @@ internal fun WarehouseHome(
                         items(cards, key = { it.key + it.title }) { card ->
                             ShelfPoster(
                                 card = card,
+                                settings = settings,
                                 modifier = Modifier.fillMaxWidth(),
                                 preview = settings.windowPreview,
                                 onFocus = { focused = it },
@@ -334,7 +363,7 @@ internal fun WarehouseHome(
                             )
                         }
                         if (page < pageCount && tab != HOME_TAB) {
-                            item(span = { GridItemSpan(5) }) {
+                            item(span = { GridItemSpan(columns) }) {
                                 TvButton("下一页", primary = true) {
                                     page += 1
                                 }
@@ -358,7 +387,7 @@ internal fun WarehouseHome(
             }
             if (settings.windowPreview && focused != null) {
                 Text(
-                    listOfNotNull(focused?.badge, focused?.title, focused?.corner).joinToString("  ·  "),
+                    listOfNotNull(focused?.hot, focused?.year, focused?.quality, focused?.title).joinToString("  ·  "),
                     color = Color.White,
                     modifier = Modifier.align(Alignment.BottomStart).padding(start = 28.dp, bottom = 8.dp),
                 )
@@ -370,6 +399,7 @@ internal fun WarehouseHome(
 @Composable
 private fun ShelfPoster(
     card: ShelfCard,
+    settings: AppSettings,
     modifier: Modifier,
     preview: Boolean,
     onFocus: (ShelfCard) -> Unit,
@@ -377,47 +407,54 @@ private fun ShelfPoster(
     onSearchTitle: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
+    val radius = settings.cornerRadius.coerceIn(0, 28).dp
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(radius)
+    val ratio = when (settings.posterSize) {
+        "small" -> 0.82f
+        "large" -> 0.62f
+        else -> 0.72f
+    }
     Surface(
         onClick = { if (card.search) onSearchTitle(card.title) else onOpen(card.key) },
         modifier = modifier.onFocusChanged { if (it.isFocused && preview) onFocus(card) },
-        shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = palette.surface.copy(alpha = 0.35f),
+            containerColor = palette.surface.copy(alpha = settings.tileAlpha.coerceIn(30, 100) / 100f),
             focusedContainerColor = palette.surface2,
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
                 androidx.compose.foundation.BorderStroke(3.dp, palette.accent),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                shape = shape,
             ),
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
-        Box(Modifier.fillMaxWidth().aspectRatio(0.72f)) {
+        Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
             Poster(card.image, card.title, Modifier.fillMaxSize(), fade = false)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.82f))),
                 ),
             )
-            card.badge?.let { badge ->
-                Text(
-                    badge,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.TopStart).padding(6.dp).background(Color.Black.copy(alpha = 0.55f)).padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+            Column(Modifier.align(Alignment.TopStart).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (settings.showDoubanBadge) card.hot?.let { Badge(it, Color.Black.copy(alpha = 0.55f)) }
+                if (settings.showYear) card.year?.let { Badge(it, Color.Black.copy(alpha = 0.55f)) }
             }
-            card.corner?.let { mark ->
-                Text(
-                    mark,
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(palette.accent.copy(alpha = 0.85f)).padding(horizontal = 6.dp, vertical = 2.dp),
-                )
+            if (settings.showQuality) {
+                card.quality?.let { mark ->
+                    Text(
+                        mark,
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(palette.accent.copy(alpha = 0.85f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
             }
-            card.score?.let { score ->
-                Text(score, color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 28.dp))
+            if (settings.showRating) {
+                card.score?.let { score ->
+                    Text(score, color = palette.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.align(Alignment.BottomStart).padding(start = 8.dp, bottom = 28.dp))
+                }
             }
             Text(
                 card.title,
@@ -429,6 +466,16 @@ private fun ShelfPoster(
             )
         }
     }
+}
+
+@Composable
+private fun Badge(text: String, color: Color) {
+    Text(
+        text,
+        color = Color.White,
+        fontSize = 12.sp,
+        modifier = Modifier.background(color, androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -495,8 +542,9 @@ private fun DoubanCard.toShelf() = ShelfCard(
     key = "douban:$id",
     title = title,
     image = poster,
-    badge = "豆瓣热播",
-    corner = year.takeIf { it.isNotBlank() },
+    hot = "豆瓣热播",
+    year = year.takeIf { it.isNotBlank() },
+    quality = null,
     score = rating.takeIf { it.isNotBlank() },
     search = true,
 )
@@ -505,8 +553,9 @@ private fun MergedVod.toShelf() = ShelfCard(
     key = key,
     title = title,
     image = pic,
-    badge = year?.takeIf { it.isNotBlank() } ?: remarks?.takeIf { it.isNotBlank() },
-    corner = if (!year.isNullOrBlank()) remarks?.takeIf { it.isNotBlank() } else null,
+    hot = null,
+    year = year?.takeIf { it.isNotBlank() },
+    quality = remarks?.takeIf { it.isNotBlank() },
     score = score?.takeIf { it.isNotBlank() },
     search = false,
 )

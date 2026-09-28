@@ -356,22 +356,40 @@ fun PlayerScreen(onBack: () -> Unit) {
                             }
                         }
                     }
-                    else -> FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        TvButton(if (ui.playing) "暂停" else "播放", onClick = vm::playPause)
-                        TvButton("上一集", enabled = ui.canPrev, onClick = vm::previous)
-                        TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
-                        TvButton("线路") { vm.panel(PlayerPanel.Lines) }
-                        TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
-                        TvButton("画面") { vm.panel(PlayerPanel.Aspect) }
-                        TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
-                        TvButton(if (overlay.danmakuOn) "弹幕" else "弹幕关") { vm.panel(PlayerPanel.Danmaku) }
-                        TvButton("字幕") { vm.panel(PlayerPanel.Subtitle) }
-                        TvButton("内核 ${parseEngine(ui.engine).label()}") { vm.panel(PlayerPanel.Engine) }
-                        TvButton("用外部播放器打开") { vm.openExternal(context) }
+                    else -> when (settings.playerBar) {
+                        "slim" -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TvButton(if (ui.playing) "暂停" else "播放", primary = true, onClick = vm::playPause)
+                            TvButton("上一集", enabled = ui.canPrev, onClick = vm::previous)
+                            TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
+                            TvButton("菜单") { vm.panel(PlayerPanel.Menu) }
+                        }
+                        "float" -> Row(
+                            Modifier.clip(RoundedCornerShape(28.dp)).background(Color.Black.copy(alpha = 0.72f)).padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TvButton(if (ui.playing) "暂停" else "播放", primary = true, onClick = vm::playPause)
+                            Text("${formatClock(ui.positionMs)} / ${formatClock(ui.durationMs)}", color = Color.White)
+                            TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
+                            TvButton("菜单") { vm.panel(PlayerPanel.Menu) }
+                        }
+                        else -> FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            TvButton(if (ui.playing) "暂停" else "播放", onClick = vm::playPause)
+                            TvButton("上一集", enabled = ui.canPrev, onClick = vm::previous)
+                            TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
+                            TvButton("线路") { vm.panel(PlayerPanel.Lines) }
+                            TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
+                            TvButton("画面") { vm.panel(PlayerPanel.Aspect) }
+                            TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
+                            TvButton(if (overlay.danmakuOn) "弹幕" else "弹幕关") { vm.panel(PlayerPanel.Danmaku) }
+                            TvButton("字幕") { vm.panel(PlayerPanel.Subtitle) }
+                            TvButton("内核 ${parseEngine(ui.engine).label()}") { vm.panel(PlayerPanel.Engine) }
+                            TvButton("用外部播放器打开") { vm.openExternal(context) }
+                        }
                     }
                 }
             }

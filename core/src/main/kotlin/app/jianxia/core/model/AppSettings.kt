@@ -36,8 +36,21 @@ data class AppSettings(
     val fontScale: String = "medium",
     val homeRows: List<HomeRowSetting> = HomeRowSetting.defaults(),
     val homeLayout: String = "cinema",
+    val homeShell: String = "warehouse",
     val reduceMotion: Boolean = false,
     val posterSize: String = "medium",
+    val posterColumns: Int = 5,
+    val tileAlpha: Int = 72,
+    val cornerRadius: Int = 12,
+    val showRating: Boolean = true,
+    val showYear: Boolean = true,
+    val showQuality: Boolean = true,
+    val showDoubanBadge: Boolean = true,
+    val showClock: Boolean = true,
+    val homeActions: List<ShelfToggle> = emptyList(),
+    val homeTabs: List<ShelfToggle> = emptyList(),
+    val playerBar: String = "full",
+    val wallpaperPayload: String = "",
     val defaultSourceId: String = "",
     val searchTimeoutSec: Int = 8,
     val autoLineSelect: Boolean = true,
@@ -114,7 +127,15 @@ data class AppSettings(
         fontScale = if (fontScale in FONT_SCALES) fontScale else "medium",
         homeRows = sanitizeRows(homeRows),
         homeLayout = if (homeLayout == "classic") "classic" else "cinema",
+        homeShell = if (homeShell == "cinema") "cinema" else "warehouse",
         posterSize = if (posterSize in POSTER_SIZES) posterSize else "medium",
+        posterColumns = if (posterColumns in POSTER_COLUMNS) posterColumns else 5,
+        tileAlpha = tileAlpha.coerceIn(30, 100),
+        cornerRadius = cornerRadius.coerceIn(0, 28),
+        homeActions = UiDiy.sanitizeActions(homeActions),
+        homeTabs = UiDiy.sanitizeTabs(homeTabs),
+        playerBar = if (playerBar in PLAYER_BARS) playerBar else "full",
+        wallpaperPayload = wallpaperPayload.trim().let { if (it.length > 8_000_000) "" else it },
         defaultSourceId = defaultSourceId.trim(),
         searchTimeoutSec = searchTimeoutSec.coerceIn(3, 30),
         decoder = if (decoder == "software") "software" else "hardware",
@@ -164,6 +185,8 @@ data class AppSettings(
         val WALLPAPERS = AppearanceCatalog.wallpaperIds
         val FONT_SCALES = AppearanceCatalog.fontIds
         val POSTER_SIZES = setOf("small", "medium", "large")
+        val POSTER_COLUMNS = setOf(4, 5, 6)
+        val PLAYER_BARS = setOf("full", "slim", "float")
         val ASPECTS = setOf("fit", "fill", "zoom", "16:9", "4:3")
         val SIZES = setOf("small", "medium", "large")
         val SPEEDS = setOf("slow", "medium", "fast")
