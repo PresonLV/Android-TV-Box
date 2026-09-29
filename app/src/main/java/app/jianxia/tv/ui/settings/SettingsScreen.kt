@@ -146,7 +146,7 @@ private fun SourcesPage(onBack: () -> Unit, openCreate: Boolean = false) {
     var editing by remember { mutableStateOf<SourceEntity?>(null) }
     var creating by remember { mutableStateOf(openCreate) }
     Box(Modifier.fillMaxSize()) {
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("接口与直播源", color = palette.text, fontSize = 26.sp)
             Text(message ?: "推荐先用右侧二维码，在手机上粘贴地址。可以一次粘贴多个网址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
@@ -329,7 +329,7 @@ private fun ImageUrlPage(onDone: () -> Unit) {
     var url by remember(settings.backgroundImageUrl) { mutableStateOf(settings.backgroundImageUrl) }
     var uppercase by remember { mutableStateOf(false) }
     val clipboard = readClipboard(context)
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("自定义壁纸", color = palette.text, fontSize = 26.sp)
         Text("用下面的按键输入图片网址，或在右侧手机页面里粘贴。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
         Text(url.ifBlank { "还没有地址" }, color = palette.accent, modifier = Modifier.padding(bottom = 8.dp))
@@ -382,7 +382,7 @@ private fun BackupPage() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf("整份备份会覆盖当前的接口和设置。外观也可以在手机页面里单独改。") }
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("数据与备份", color = palette.text, fontSize = 26.sp)
             Text(message, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
@@ -419,7 +419,7 @@ private fun EnhancePage() {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("豆瓣与播放增强", color = palette.text, fontSize = 26.sp)
         Text("长地址、广告规则和弹幕令牌用手机页面填写。这里用遥控器开关。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
         Text("豆瓣", color = palette.text, fontSize = 18.sp)
@@ -493,7 +493,7 @@ private fun SpiderGate(onCancel: () -> Unit) {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("远程爬虫", color = palette.text, fontSize = 26.sp)
         Text(
             "这会下载并运行配置里的远程代码，可能访问网络和应用数据。只打开你信任的配置。恶意爬虫可以读取本机保存的数据，并发起网络请求。默认关闭；关掉之后会立刻停止执行，首页和搜索不再请求这些站点。",
@@ -529,7 +529,7 @@ private fun AboutPage() {
     val palette = LocalPalette.current
     val context = LocalContext.current
     var licenseHint by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         val crash = remember { app.jianxia.tv.CrashStore.read(context.applicationContext as android.app.Application) }
         if (crash.isNotBlank()) {
@@ -598,7 +598,7 @@ private fun CookiePage() {
             note = done
         }
     }
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("网盘 Cookie", color = palette.text, fontSize = 26.sp)
             Text(note, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))

@@ -68,6 +68,8 @@ import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.ScreenPadding
+import app.jianxia.tv.ui.focusGlow
+import app.jianxia.tv.ui.focusScale
 import app.jianxia.tv.ui.TvButton
 import app.jianxia.tv.ui.WallpaperLayer
 import app.jianxia.tv.ui.hexColor
@@ -187,33 +189,35 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
         Tile("远程爬虫", if (settings.spiderEnabled) "已打开" else "已关闭") { onOpen("spider") },
         Tile("关于", versionName) { onOpen("about") },
     )
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp)) {
-        Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp, start = 8.dp))
+    Column(Modifier.fillMaxSize().padding(ScreenPadding())) {
+        Text("设置", color = palette.text, fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+        Text(note, color = palette.muted, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
         LazyVerticalGrid(
             columns = GridCells.Fixed(4),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             items(tiles, key = { it.label }) { tile ->
                 Surface(
                     onClick = tile.onClick,
-                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                    modifier = Modifier.fillMaxWidth().height(88.dp),
                     shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(radius)),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = palette.surface.copy(alpha = tileAlpha),
                         focusedContainerColor = palette.surface2,
                     ),
+                    scale = focusScale(),
+                    glow = focusGlow(),
                     border = ClickableSurfaceDefaults.border(
                         focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(radius)),
                     ),
                 ) {
-                    Row(
-                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        Text(tile.label, color = palette.text, fontSize = 15.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(tile.value + "  >", color = palette.muted, fontSize = 13.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(tile.label, color = palette.text, fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        Text(tile.value, color = palette.muted, fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -247,7 +251,7 @@ internal fun ThemeStudio() {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("主题", color = palette.text, fontSize = 26.sp)
             Text("深浅", color = palette.muted, modifier = Modifier.padding(top = 12.dp, bottom = 8.dp))
@@ -296,7 +300,7 @@ internal fun WallpaperStudio(onCustom: () -> Unit) {
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf(settings) }
     LaunchedEffect(settings) { draft = settings }
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.25f).verticalScroll(rememberScrollState())) {
             Text("壁纸", color = palette.text, fontSize = 26.sp)
             Text("移动焦点可以预览，按确认键才会换上。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 10.dp))
@@ -520,7 +524,7 @@ internal fun LinesHub(sourceName: String, onOpen: (String) -> Unit) {
 @Composable
 private fun SectionPage(title: String, hint: String, content: @Composable () -> Unit) {
     val palette = LocalPalette.current
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text(title, color = palette.text, fontSize = 26.sp)
         Text(hint, color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 14.dp))
         content()

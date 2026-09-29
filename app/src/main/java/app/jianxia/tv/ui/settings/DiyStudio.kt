@@ -84,7 +84,7 @@ internal fun DiyStudio(onImageUrl: () -> Unit) {
     fun save(block: (AppSettings) -> AppSettings) {
         scope.launch { app.settings.update(block) }
     }
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.35f).verticalScroll(rememberScrollState())) {
             Text("界面 DIY", color = palette.text, fontSize = 26.sp)
             Text("按确认键才会改。右边是当前效果，电视其余页面也会一起换。", color = palette.muted, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))

@@ -130,7 +130,7 @@ private fun SiteStatusPage(
 ) {
     val palette = LocalPalette.current
     val ordered = reports.sortedBy { statusRank(it.status) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding())) {
         Text("站点状态", color = palette.text, fontSize = 28.sp)
         if (!summary.isNullOrBlank()) {
             Text(summary, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))

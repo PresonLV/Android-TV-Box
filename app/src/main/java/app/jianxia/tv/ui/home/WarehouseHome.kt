@@ -12,7 +12,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -66,6 +80,10 @@ import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.Poster
 import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
+import app.jianxia.tv.ui.cornerShape
+import app.jianxia.tv.ui.focusBorder
+import app.jianxia.tv.ui.focusGlow
+import app.jianxia.tv.ui.focusScale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -288,6 +306,9 @@ internal fun WarehouseHome(
     }
 
     val leftRail = settings.homeRail != "top"
+    val configuration = LocalConfiguration.current
+    val safeH = (configuration.screenWidthDp * 0.05f).coerceIn(32f, 96f).dp
+    val safeV = (configuration.screenHeightDp * 0.05f).coerceIn(24f, 64f).dp
     val contentFocus = remember { FocusRequester() }
     val railFocus = remember { FocusRequester() }
     LaunchedEffect(focused?.key) {
@@ -299,11 +320,11 @@ internal fun WarehouseHome(
             runCatching { app.catalog.hydrate(item) }
         }
     }
-    Row(Modifier.fillMaxSize()) {
+    Row(Modifier.fillMaxSize().padding(start = safeH, top = safeV, end = safeH, bottom = safeV)) {
     if (leftRail) {
         Column(
             Modifier
-                .padding(start = 16.dp, top = 18.dp, end = 8.dp)
+                .padding(end = 16.dp)
                 .focusProperties {
                     exit = {
                         if (it == androidx.compose.ui.focus.FocusDirection.Right) {
@@ -316,8 +337,9 @@ internal fun WarehouseHome(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             actions.forEachIndexed { index, action ->
-                TvButton(
+                RailButton(
                     action.title,
+                    railIcon(action.id),
                     modifier = if (index == 0) Modifier.focusRequester(railFocus) else Modifier,
                 ) { runAction(action.id, onHistory, onLive, onSearchPage, onPush, onFavorites, onSettings) }
             }
@@ -344,7 +366,7 @@ internal fun WarehouseHome(
             },
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 28.dp, end = 28.dp, top = 16.dp),
+            Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -352,7 +374,7 @@ internal fun WarehouseHome(
             if (settings.showClock) Text(now, color = palette.muted, fontSize = 16.sp)
         }
         Row(
-            Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 10.dp),
+            Modifier.fillMaxWidth().padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             tabs.forEach { item ->
@@ -380,8 +402,8 @@ internal fun WarehouseHome(
         }
         if (!leftRail) {
             Row(
-                Modifier.padding(start = 28.dp, end = 28.dp, top = 10.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 actions.forEach { action ->
                     TvButton(action.title) {
@@ -392,7 +414,7 @@ internal fun WarehouseHome(
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
-                sources.none { it.enabled } -> Row(Modifier.fillMaxSize().padding(28.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                sources.none { it.enabled } -> Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Column(Modifier.weight(1f)) {
                         Text("还没有接口", color = palette.text, fontSize = 28.sp)
                         Text("个人影院不内置片源。用手机扫右侧二维码添加配置，或到设置里输入地址。", color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 16.dp))
@@ -421,9 +443,9 @@ internal fun WarehouseHome(
                     }
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
-                        contentPadding = PaddingValues(start = 28.dp, end = 28.dp, bottom = if (showFilters) 180.dp else 24.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(bottom = if (showFilters) 180.dp else 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
                         modifier = Modifier.weight(1f),
                     ) {
                         if (settings.homeMultiRow && strips.isNotEmpty() && tab == HOME_TAB) {
@@ -520,8 +542,7 @@ private fun ShelfPoster(
     onSearchTitle: (String) -> Unit,
 ) {
     val palette = LocalPalette.current
-    val radius = settings.cornerRadius.coerceIn(0, 28).dp
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(radius)
+    val shape = cornerShape()
     val ratio = when (settings.posterSize) {
         "small" -> 0.82f
         "large" -> 0.62f
@@ -535,13 +556,9 @@ private fun ShelfPoster(
             containerColor = palette.surface.copy(alpha = settings.tileAlpha.coerceIn(30, 100) / 100f),
             focusedContainerColor = palette.surface2,
         ),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                androidx.compose.foundation.BorderStroke(3.dp, palette.accent),
-                shape = shape,
-            ),
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+        border = focusBorder(shape),
+        scale = focusScale(),
+        glow = focusGlow(),
     ) {
         val posterPx = when (settings.posterColumns) {
             6 -> 180
@@ -555,9 +572,9 @@ private fun ShelfPoster(
                     Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.82f))),
                 ),
             )
-            Column(Modifier.align(Alignment.TopStart).padding(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (settings.showDoubanBadge) card.hot?.let { Badge(it, Color.Black.copy(alpha = 0.55f)) }
-                if (settings.showYear) card.year?.let { Badge(it, Color.Black.copy(alpha = 0.55f)) }
+            Column(Modifier.align(Alignment.TopStart).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (settings.showDoubanBadge) card.hot?.let { Badge(it, Color.Black.copy(alpha = 0.62f)) }
+                if (settings.showYear) card.year?.let { Badge(it, Color.Black.copy(alpha = 0.62f)) }
             }
             if (settings.showQuality) {
                 card.quality?.let { mark ->
@@ -565,7 +582,8 @@ private fun ShelfPoster(
                         mark,
                         color = Color.White,
                         fontSize = 12.sp,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(6.dp).background(palette.accent.copy(alpha = 0.85f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).background(palette.accent.copy(alpha = 0.92f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -592,8 +610,46 @@ private fun Badge(text: String, color: Color) {
         text,
         color = Color.White,
         fontSize = 12.sp,
-        modifier = Modifier.background(color, androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier.background(color, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
     )
+}
+
+@Composable
+private fun RailButton(title: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val palette = LocalPalette.current
+    val shape = cornerShape()
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(shape),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = palette.surface.copy(alpha = 0.72f),
+            contentColor = palette.text,
+            focusedContainerColor = palette.accent,
+            focusedContentColor = palette.onAccent,
+        ),
+        scale = focusScale(),
+        glow = focusGlow(),
+        border = focusBorder(shape),
+    ) {
+        Row(
+            Modifier.width(168.dp).height(48.dp).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, title, modifier = Modifier.size(20.dp))
+            Text(title, modifier = Modifier.padding(start = 8.dp), fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        }
+    }
+}
+
+private fun railIcon(id: String): ImageVector = when (id) {
+    "history" -> Icons.Filled.List
+    "live" -> Icons.Filled.PlayArrow
+    "search" -> Icons.Filled.Search
+    "push" -> Icons.Filled.Send
+    "favorite" -> Icons.Filled.Favorite
+    else -> Icons.Filled.Settings
 }
 
 @Composable

@@ -4,6 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -256,7 +258,7 @@ internal fun EpisodePager(
     val pages = episodePageCount(episodes.size)
     val order = episodeOrder(episodes.size, reversed)
     val window = order.drop(page * 40).take(40)
-    Text("选集", color = palette.text, modifier = Modifier.padding(top = 18.dp, bottom = 8.dp))
+    Text("选集", color = palette.text, fontSize = 22.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 16.dp, bottom = 8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
         SelectChip(if (reversed) "倒序" else "正序", true, onClick = onToggleOrder)
         if (pages > 1) {
@@ -268,15 +270,29 @@ internal fun EpisodePager(
             }
         }
     }
-    window.chunked(8).forEach { row ->
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+    window.chunked(5).forEach { row ->
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
             row.forEach { index ->
-                SelectChip(episodes.getOrNull(index).orEmpty().ifBlank { "${index + 1}" }, index == selected) {
-                    onSelect(index)
-                }
+                val (heading, caption) = episodeCaption(index, episodes.getOrNull(index).orEmpty())
+                SelectChip(
+                    if (caption == heading) heading else "$heading  $caption",
+                    index == selected,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) { onSelect(index) }
+            }
+            repeat(5 - row.size) {
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             }
         }
     }
+}
+
+internal fun episodeCaption(index: Int, raw: String): Pair<String, String> {
+    val cleaned = raw.replace(Regex("^\\[[^\\]]+]\\s*"), "").trim()
+    val heading = "第 ${index + 1} 集"
+    if (cleaned.isBlank() || cleaned == heading || cleaned == "${index + 1}") return heading to heading
+    val short = if (cleaned.length > 18) cleaned.take(17) + "…" else cleaned
+    return heading to short
 }
 
 private fun lineId(item: MergedVod, sourceIndex: Int, lineIndex: Int): String? {
@@ -298,7 +314,7 @@ fun DetailScreen(encodedKey: String, onPlay: () -> Unit, onBack: () -> Unit, onS
         palette.hashCode()
     BackHandler(onBack = onBack)
     val item = state.item
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding())) {
         when {
             state.loading -> CircularProgressIndicator(color = palette.accent)
             item == null -> Text(state.error ?: "无法打开详情", color = palette.text, fontSize = 22.sp)

@@ -189,7 +189,7 @@ fun DoubanScreen(
             DoubanFilter.sorts.firstOrNull { it.first == sort }?.second,
         ).joinToString(" · ")
     }
-    Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding())) {
         if (siteMode) {
             Text(siteName.ifBlank { "站点筛选" }, color = palette.text, fontSize = 22.sp)
             Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
