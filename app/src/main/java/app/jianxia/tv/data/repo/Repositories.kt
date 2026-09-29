@@ -1,6 +1,8 @@
 package app.jianxia.tv.data.repo
 
 import android.content.Context
+import app.jianxia.core.cache.BrowseSnap
+import app.jianxia.core.cache.TextCache
 import app.jianxia.core.UserFacingError
 import app.jianxia.core.aggregate.ParallelAggregator
 import app.jianxia.core.backup.BackupCodec
@@ -58,6 +60,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
@@ -75,12 +78,41 @@ class SettingsRepository(context: Context) {
     }
 
     suspend fun write(settings: AppSettings) {
-        mutex.withLock { persist(settings.sanitized()) }
+        mutex.withLock {
+            val clean = settings.sanitized()
+            val local = storeWallpaper(clean.wallpaperPayload)
+            val next = if (local != null) {
+                clean.copy(backgroundType = "image", backgroundImageUrl = local, wallpaperPayload = "")
+            } else {
+                clean.copy(wallpaperPayload = "")
+            }
+            persist(next)
+        }
+    }
+
+    fun exportSnapshot(): AppSettings {
+        val current = _state.value.copy(wallpaperPayload = "")
+        val image = File(file.parentFile, "diy-wallpaper.img")
+        if (current.backgroundType != "image" || !image.isFile || image.length() > 4_000_000) return current
+        val payload = android.util.Base64.encodeToString(image.readBytes(), android.util.Base64.NO_WRAP)
+        return current.copy(wallpaperPayload = payload)
+    }
+
+    private fun storeWallpaper(payload: String): String? {
+        val encoded = payload.trim()
+        if (encoded.isEmpty()) return null
+        val bytes = runCatching { android.util.Base64.decode(encoded, android.util.Base64.DEFAULT) }.getOrNull() ?: return null
+        if (bytes.isEmpty() || bytes.size > 4_000_000) return null
+        if (android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) == null) return null
+        val image = File(file.parentFile, "diy-wallpaper.img")
+        image.writeBytes(bytes)
+        return image.toURI().toString()
     }
 
     private fun persist(settings: AppSettings) {
-        _state.value = settings
-        file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), settings))
+        val stored = settings.copy(wallpaperPayload = "")
+        _state.value = stored
+        file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), stored))
     }
 
     private fun read(): AppSettings {
@@ -351,6 +383,7 @@ class LibraryRepository(private val dao: LibraryDao) {
         positionMs: Long,
         durationMs: Long,
         lineId: String,
+        keep: Int = 30,
     ) {
         dao.upsertHistory(
             HistoryEntity(
@@ -367,6 +400,7 @@ class LibraryRepository(private val dao: LibraryDao) {
                 updatedAt = System.currentTimeMillis(),
             ),
         )
+        dao.historyKeys().drop(keep.coerceIn(10, 200)).forEach { dao.deleteHistory(it) }
     }
 
     suspend fun deleteHistory(key: String) = dao.deleteHistory(key)
@@ -465,10 +499,19 @@ class CatalogRepository(
     val store: CatalogStore,
     private val spiderEnabled: () -> Boolean = { false },
     private val spiders: app.jianxia.tv.spider.SpiderHub? = null,
+    browseDir: File? = null,
 ) {
     private val registry = CatalogRegistry(http)
     private var cached: Pair<String, ExpandedSources>? = null
+    private val browseCache = browseDir?.let { TextCache(it) }
+    private val browseJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     @Volatile var lastHome: HomeCatalog? = null
+
+    fun peekBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): SiteBrowse? {
+        val raw = browseCache?.read(browseKey(siteKey, page, typeId, extend)) ?: return null
+        val snap = runCatching { browseJson.decodeFromString(BrowseSnap.serializer(), raw) }.getOrNull() ?: return null
+        return snap.toBrowse()
+    }
 
     fun registry(): CatalogRegistry = registry
 
@@ -687,7 +730,7 @@ class CatalogRepository(
                     items = merged,
                     page = vod.page,
                     pageCount = vod.pageCount,
-                )
+                ).also { rememberBrowse(siteKey, page, typeId, extend, it) }
             },
             onFailure = { error ->
                 val message = if (site.kind == SiteKind.SPIDER) SpiderFault.explain(error) else UserFacingError.message(error)
@@ -708,15 +751,21 @@ class CatalogRepository(
         } else {
             settings.searchTimeoutSec * 1000L
         }
-        val outcome = ParallelAggregator.collect(timeout, sites.map { site ->
+        val pool = if (!settings.aggregateSearch) {
+            val home = sites.firstOrNull { it.key == settings.defaultSourceId }
+            if (home != null) listOf(home) else sites
+        } else {
+            sites
+        }
+        val outcome = ParallelAggregator.collect(timeout, pool.map { site ->
             suspend { registry.create(site).search(query).items }
         })
         val merged = mergeVodItems(outcome.items).take(60)
         store.putAll(merged)
         val missed = outcome.failureCount + outcome.timedOutCount
         val message = when {
-            merged.isEmpty() && missed > 0 -> "来源没有及时响应"
-            merged.isEmpty() -> "没有找到「$query」"
+            merged.isEmpty() && missed > 0 -> "没有找到片源「$query」。$missed 个来源没有返回内容（超时或加载失败）"
+            merged.isEmpty() -> "没有找到片源「$query」"
             missed > 0 -> "找到 ${merged.size} 条，另有 $missed 个来源没有响应"
             else -> "找到 ${merged.size} 条"
         }
@@ -736,7 +785,35 @@ class CatalogRepository(
     }
 
     suspend fun parses(): List<ParseDef> = expand().parses
+
+    private fun rememberBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>, browse: SiteBrowse) {
+        if (browse.items.isEmpty() && browse.classes.isEmpty()) return
+        val snap = BrowseSnap(
+            name = browse.name,
+            classes = browse.classes.map { "${it.id}\t${it.name}" },
+            items = browse.items,
+            page = browse.page,
+            pageCount = browse.pageCount,
+        )
+        browseCache?.write(browseKey(siteKey, page, typeId, extend), browseJson.encodeToString(BrowseSnap.serializer(), snap))
+    }
+
+    private fun browseKey(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): String {
+        val extra = extend.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+        return "$siteKey|$page|${typeId.orEmpty()}|$extra"
+    }
 }
+
+private fun BrowseSnap.toBrowse(): SiteBrowse = SiteBrowse(
+    name = name,
+    classes = classes.mapNotNull { row ->
+        val id = row.substringBefore('\t')
+        if (id.isBlank()) null else VodClass(id, row.substringAfter('\t').ifBlank { id })
+    },
+    items = items,
+    page = page,
+    pageCount = pageCount,
+)
 
 private fun siteOf(sites: List<VodSiteDef>, key: String): VodSiteDef? = sites.firstOrNull { it.key == key }
 
@@ -818,7 +895,7 @@ class BackupRepository(
 ) {
     suspend fun export(): String {
         val bundle = BackupBundle(
-            settings = settings.state.value,
+            settings = settings.exportSnapshot(),
             sources = sources.list().map {
                 BackupSource(it.name, it.url, it.kind, it.epgUrl.orEmpty(), it.enabled, it.sortOrder)
             },

@@ -1,27 +1,17 @@
 package app.jianxia.tv.ui.home
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,21 +21,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
 import app.jianxia.core.UserFacingError
-import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.SiteReport
-import app.jianxia.core.model.displayTitle
 import app.jianxia.tv.AppContainer
-import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.data.repo.HomeCatalog
 import app.jianxia.tv.ui.LocalApp
-import app.jianxia.tv.ui.douban.DoubanHomeRows
 import app.jianxia.tv.ui.LocalPalette
-import app.jianxia.tv.ui.PhoneQrCard
-import app.jianxia.tv.ui.PosterCard
 import app.jianxia.tv.ui.ScreenPadding
-import app.jianxia.tv.ui.SectionTitle
 import app.jianxia.tv.ui.TvButton
-import app.jianxia.tv.ui.posterSize
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,16 +62,19 @@ fun HomeScreen(
     onDouban: () -> Unit,
     onSearch: (String) -> Unit,
     onBrowseSite: (String) -> Unit,
+    onHistory: () -> Unit,
+    onLive: () -> Unit,
+    onFavorites: () -> Unit,
+    onPush: () -> Unit,
+    onSearchPage: () -> Unit,
 ) {
     val app = LocalApp.current
-    val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
     val history by app.library.history().collectAsStateWithLifecycle(emptyList())
     val favorites by app.library.favorites().collectAsStateWithLifecycle(emptyList())
     val vm: HomeViewModel = viewModel(factory = factory { HomeViewModel(it) })
     val state by vm.state.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var showSites by remember { mutableStateOf(false) }
     val fingerprint = sources.joinToString { "${it.id}:${it.enabled}:${it.url}:${it.kind}:${it.note}" }
@@ -100,7 +85,7 @@ fun HomeScreen(
     }
     val noTitles = state.catalog?.rows?.values?.none { it.isNotEmpty() } != false
     val showEmpty = sources.any { it.enabled } && noTitles && history.isEmpty() && favorites.isEmpty() && !state.loading
-    if (settings.homeLayout == "cinema") {
+    if (settings.homeShell == "cinema") {
         CinemaHome(
             app = app,
             settings = settings,
@@ -123,115 +108,18 @@ fun HomeScreen(
         )
         return
     }
-    val (posterW, posterH) = posterSize(settings.posterSize)
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
-        Text("个人影院", color = palette.text, fontSize = 28.sp)
-        val note = state.catalog?.message
-        if (!note.isNullOrBlank() && !showEmpty) {
-            Text(note, color = palette.muted, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-            if (state.catalog?.reports.isNullOrEmpty().not()) {
-                TvButton("查看站点状态", modifier = Modifier.padding(bottom = 8.dp)) { showSites = true }
-            }
-        }
-        when {
-            sources.none { it.enabled } -> Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 28.dp),
-                horizontalArrangement = Arrangement.spacedBy(28.dp),
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("还没有接口", color = palette.text, fontSize = 32.sp)
-                    Text(
-                        "个人影院不内置任何片源。推荐用手机扫描右侧二维码添加，这是最省事的办法。也可以用电视上的屏幕键盘输入网址。",
-                        color = palette.muted,
-                        fontSize = 16.sp,
-                        lineHeight = 24.sp,
-                        modifier = Modifier.padding(top = 12.dp, bottom = 22.dp),
-                    )
-                    TvButton("在电视上添加", primary = true, onClick = onSettings)
-                }
-                PhoneQrCard()
-            }
-            state.loading && state.catalog == null -> CircularProgressIndicator(color = palette.accent, modifier = Modifier.padding(top = 32.dp))
-            else -> {
-                DoubanHomeRows(onDouban, onSearch)
-                settings.homeRows.filter { it.visible }.forEach { row ->
-                    when (row.id) {
-                        "history" -> if (history.isNotEmpty()) {
-                            SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(end = 24.dp, bottom = 8.dp)) {
-                                items(history, key = { it.titleKey }) { item ->
-                                    val fraction = if (item.durationMs > 0) item.positionMs / item.durationMs.toFloat() else null
-                                    PosterCard(
-                                        title = item.title,
-                                        imageUrl = item.pic,
-                                        subtitle = item.episodeName,
-                                        width = 220.dp,
-                                        height = 124.dp,
-                                        progress = fraction,
-                                        onClick = {
-                                            scope.launch {
-                                                busy = true
-                                                val merged = app.library.findMerged(item.titleKey)
-                                                if (merged != null) {
-                                                    val full = runCatching { app.catalog.hydrate(merged) }.getOrDefault(merged)
-                                                    app.session.request = PlayRequest(full, item.episodeIndex, item.positionMs, item.lineId)
-                                                    onPlay()
-                                                }
-                                                busy = false
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                        "favorite" -> if (favorites.isNotEmpty()) {
-                            SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
-                                items(favorites, key = { it.titleKey }) { item ->
-                                    PosterCard(item.title, item.pic, item.typeName, posterW, posterH, onClick = { onOpen(item.titleKey) })
-                                }
-                            }
-                        }
-                        else -> {
-                            val items = state.catalog?.rows?.get(row.id).orEmpty()
-                            if (items.isNotEmpty()) {
-                                SectionTitle(row.displayTitle(), Modifier.padding(top = 8.dp, bottom = 8.dp))
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 8.dp)) {
-                                    items(items, key = { it.key }) { item ->
-                                        PosterCard(item.title, item.pic, meta(item), posterW, posterH, onClick = { onOpen(item.key) })
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if (showEmpty) {
-                    Text(
-                        state.error ?: state.catalog?.message ?: "这些接口暂时没有返回点播内容。",
-                        color = palette.muted,
-                        modifier = Modifier.padding(top = 24.dp),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 12.dp)) {
-                        TvButton("重试") { vm.load() }
-                        TvButton("查看站点状态") { showSites = true }
-                    }
-                }
-            }
-        }
-    }
-    if (busy) BoxCenter()
-    }
+    WarehouseHome(
+        onOpen = onOpen,
+        onSearchTitle = onSearch,
+        onHistory = onHistory,
+        onLive = onLive,
+        onSearchPage = onSearchPage,
+        onPush = onPush,
+        onFavorites = onFavorites,
+        onSettings = onSettings,
+        onSites = { showSites = true },
+    )
 }
-
-@Composable
-private fun BoxCenter() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = LocalPalette.current.accent)
-    }
-}
-
-private fun meta(item: MergedVod): String = listOfNotNull(item.year, item.remarks, item.typeName).joinToString(" · ")
 
 @Composable
 private fun SiteStatusPage(
@@ -242,7 +130,7 @@ private fun SiteStatusPage(
 ) {
     val palette = LocalPalette.current
     val ordered = reports.sortedBy { statusRank(it.status) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ScreenPadding())) {
         Text("站点状态", color = palette.text, fontSize = 28.sp)
         if (!summary.isNullOrBlank()) {
             Text(summary, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))

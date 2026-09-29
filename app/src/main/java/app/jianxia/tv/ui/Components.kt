@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Glow
 import androidx.tv.material3.Surface
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -45,42 +48,81 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.BorderStroke
 
 @Composable
+fun cornerShape(): RoundedCornerShape {
+    val look by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    return RoundedCornerShape(look.cornerRadius.coerceIn(0, 28).dp)
+}
+
+@Composable
+fun focusScale(): androidx.tv.material3.ClickableSurfaceScale {
+    val look by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    return ClickableSurfaceDefaults.scale(focusedScale = if (look.reduceMotion) 1f else 1.05f)
+}
+
+@Composable
+fun focusGlow(): androidx.tv.material3.ClickableSurfaceGlow {
+    val palette = LocalPalette.current
+    val look by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    return ClickableSurfaceDefaults.glow(
+        focusedGlow = Glow(
+            elevationColor = palette.accent.copy(alpha = 0.55f),
+            elevation = if (look.reduceMotion) 0.dp else 16.dp,
+        ),
+    )
+}
+
+@Composable
+fun focusBorder(shape: RoundedCornerShape): androidx.tv.material3.ClickableSurfaceBorder {
+    val palette = LocalPalette.current
+    return ClickableSurfaceDefaults.border(
+        focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = shape),
+        focusedDisabledBorder = Border.None,
+    )
+}
+
+@Composable
 fun TvButton(
     text: String,
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     enabled: Boolean = true,
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val look by LocalApp.current.settings.state.collectAsStateWithLifecycle()
+    val shape = cornerShape()
+    val alpha = look.tileAlpha.coerceIn(30, 100) / 100f
     Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(12.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (primary) palette.accent else palette.surface,
+            containerColor = if (primary) palette.accent else palette.surface.copy(alpha = alpha),
             contentColor = if (primary) palette.onAccent else palette.text,
-            focusedContainerColor = if (primary) palette.accent else palette.surface2,
+            focusedContainerColor = if (primary) palette.accent else palette.surface2.copy(alpha = alpha.coerceAtLeast(0.72f)),
             focusedContentColor = if (primary) palette.onAccent else palette.text,
             pressedContainerColor = palette.accent,
             pressedContentColor = palette.onAccent,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, palette.accent),
-                shape = RoundedCornerShape(12.dp),
-            ),
-            focusedDisabledBorder = Border.None,
-        ),
+        scale = focusScale(),
+        glow = focusGlow(),
+        border = focusBorder(shape),
     ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            color = if (primary) palette.onAccent else palette.text,
-            fontSize = 15.sp,
-        )
+        Box(
+            Modifier.then(if (compact) Modifier.size(48.dp) else Modifier.defaultMinSize(minHeight = 48.dp).padding(horizontal = 16.dp, vertical = 8.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = text,
+                color = if (primary) palette.onAccent else palette.text,
+                fontSize = if (compact) 16.sp else 16.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -93,25 +135,35 @@ fun SelectChip(
     onClick: () -> Unit,
 ) {
     val palette = LocalPalette.current
+    val shape = cornerShape()
     val idle = if (dimmed) palette.muted else palette.text
     Surface(
         onClick = onClick,
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(999.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) palette.accent else palette.surface,
             contentColor = if (selected) palette.onAccent else idle,
             focusedContainerColor = if (selected) palette.accent else palette.surface2,
             focusedContentColor = if (selected) palette.onAccent else idle,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        scale = focusScale(),
+        glow = focusGlow(),
         border = ClickableSurfaceDefaults.border(
-            border = if (selected) Border(BorderStroke(1.dp, palette.accent), shape = RoundedCornerShape(999.dp)) else Border.None,
-            focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(999.dp)),
+            border = if (selected) Border(BorderStroke(2.dp, palette.accent), shape = shape) else Border.None,
+            focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = shape),
             focusedDisabledBorder = Border.None,
         ),
     ) {
-        Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp), color = if (selected) palette.onAccent else idle, fontSize = 14.sp)
+        Text(
+            text,
+            modifier = Modifier.defaultMinSize(minHeight = 40.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            color = if (selected) palette.onAccent else idle,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -128,21 +180,20 @@ fun PosterCard(
     rating: String? = null,
 ) {
     val palette = LocalPalette.current
+    val shape = cornerShape()
     Surface(
         onClick = onClick,
         modifier = modifier.width(width),
-        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        shape = ClickableSurfaceDefaults.shape(shape = shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = palette.surface,
             contentColor = palette.text,
             focusedContainerColor = palette.surface2,
             focusedContentColor = palette.text,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
-        border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(16.dp)),
-            focusedDisabledBorder = Border.None,
-        ),
+        scale = focusScale(),
+        glow = focusGlow(),
+        border = focusBorder(shape),
     ) {
         Column {
             Box {
@@ -238,8 +289,13 @@ fun Poster(
 }
 
 @Composable
+fun PageTitle(text: String, modifier: Modifier = Modifier) {
+    Text(text, modifier = modifier, color = LocalPalette.current.text, fontSize = 32.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
+@Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text, modifier = modifier, color = LocalPalette.current.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+    Text(text, modifier = modifier, color = LocalPalette.current.text, fontSize = 22.sp, fontWeight = FontWeight.Medium)
 }
 
 @Composable
@@ -276,18 +332,19 @@ fun QrImage(content: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun Keycap(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    TvButton(text, modifier = modifier.width(52.dp), onClick = onClick)
+    TvButton(text, modifier = modifier, compact = true, onClick = onClick)
 }
 
 @Composable
 fun Panel(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     val palette = LocalPalette.current
+    val shape = cornerShape()
     Column(
         modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(shape)
             .background(palette.surface.copy(alpha = 0.92f))
-            .border(1.dp, palette.stroke, RoundedCornerShape(20.dp))
-            .padding(18.dp),
+            .border(1.dp, palette.stroke, shape)
+            .padding(16.dp),
         content = content,
     )
 }
@@ -303,7 +360,13 @@ fun FocusOutline(focused: Boolean, modifier: Modifier = Modifier, content: @Comp
     )
 }
 
-val ScreenPadding = PaddingValues(start = 28.dp, end = 36.dp, top = 22.dp, bottom = 22.dp)
+@Composable
+fun ScreenPadding(): PaddingValues {
+    val configuration = LocalConfiguration.current
+    val horizontal = (configuration.screenWidthDp * 0.05f).coerceIn(32f, 96f).dp
+    val vertical = (configuration.screenHeightDp * 0.05f).coerceIn(24f, 64f).dp
+    return PaddingValues(start = horizontal, top = vertical, end = horizontal, bottom = vertical)
+}
 
 @Composable
 fun PhoneQrCard(onRefreshPin: (() -> Unit)? = null, modifier: Modifier = Modifier) {
@@ -315,17 +378,17 @@ fun PhoneQrCard(onRefreshPin: (() -> Unit)? = null, modifier: Modifier = Modifie
     } else {
         null
     }
-    Panel(modifier.width(300.dp)) {
-        Text("手机扫码添加", color = palette.text, fontSize = 20.sp, fontWeight = FontWeight.Medium)
+    Panel(modifier.width(280.dp)) {
+        Text("手机扫码", color = palette.text, fontSize = 22.sp, fontWeight = FontWeight.Medium)
         Text(
-            "这是添加接口的主要方式。手机和电视连同一个网络，扫码后粘贴地址。",
+            "同一网络下扫码。可以推送播放地址、搜索片名，或粘贴网盘 Cookie。",
             color = palette.muted,
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
-            modifier = Modifier.padding(top = 6.dp, bottom = 10.dp),
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
         if (pageUrl != null) {
-            QrImage(pageUrl, Modifier.width(220.dp).height(220.dp))
+            QrImage(pageUrl, Modifier.size(200.dp))
             Text(pageUrl, color = palette.muted, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
             Text("口令 ${lan.pin}", color = palette.accent, modifier = Modifier.padding(top = 6.dp))
         } else {

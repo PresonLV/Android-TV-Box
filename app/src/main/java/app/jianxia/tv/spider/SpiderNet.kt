@@ -1,6 +1,7 @@
 package app.jianxia.tv.spider
 
 import android.util.Base64
+import app.jianxia.core.spider.FileInstall
 import app.jianxia.core.spider.SpiderCall
 import app.jianxia.core.spider.SpiderReply
 import app.jianxia.core.spider.md5Bytes
@@ -123,6 +124,7 @@ internal class JarCache(private val dir: File, private val http: OkHttpClient) {
             val name = (ref.md5 ?: md5Bytes(ref.url.toByteArray())) + ".jar"
             val target = File(dir, name)
             if (target.isFile && target.length() > 0 && (ref.md5 == null || md5Bytes(target.readBytes()) == ref.md5)) {
+                if (target.canWrite()) target.setWritable(false, false)
                 return target
             }
             val loaded = http.bytes(
@@ -138,8 +140,7 @@ internal class JarCache(private val dir: File, private val http: OkHttpClient) {
             val digest = md5Bytes(bytes)
             if (ref.md5 != null && digest != ref.md5) throw IllegalStateException("爬虫 JAR 校验不一致")
             val named = if (ref.md5 != null) target else File(dir, "$digest.jar")
-            named.writeBytes(bytes)
-            return named
+            return FileInstall.place(dir, named.name, bytes, executable = false, readOnly = true)
         }
     }
 }

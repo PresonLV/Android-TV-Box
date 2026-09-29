@@ -66,6 +66,9 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
         "theme" -> ThemeStudio()
         "wallpaper" -> WallpaperStudio { page = "imageUrl" }
         "imageUrl" -> ImageUrlPage { page = "wallpaper" }
+        "diy" -> DiyStudio { page = "diyImage" }
+        "cookies" -> CookiePage()
+        "diyImage" -> ImageUrlPage { page = "diy" }
         "font" -> ChoicePage(
             title = "文字大小",
             choices = AppearanceCatalog.fonts,
@@ -118,6 +121,8 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
 private fun parentPage(page: String): String = when (page) {
     "theme", "wallpaper", "font" -> "look"
     "imageUrl" -> "wallpaper"
+    "diyImage" -> "diy"
+    "cookies" -> "root"
     "engine", "decoder", "speed", "aspect", "startup" -> "play"
     "sources", "source", "autoline", "timeout" -> "lines"
     else -> "root"
@@ -141,7 +146,7 @@ private fun SourcesPage(onBack: () -> Unit, openCreate: Boolean = false) {
     var editing by remember { mutableStateOf<SourceEntity?>(null) }
     var creating by remember { mutableStateOf(openCreate) }
     Box(Modifier.fillMaxSize()) {
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("接口与直播源", color = palette.text, fontSize = 26.sp)
             Text(message ?: "推荐先用右侧二维码，在手机上粘贴地址。可以一次粘贴多个网址。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
@@ -324,7 +329,7 @@ private fun ImageUrlPage(onDone: () -> Unit) {
     var url by remember(settings.backgroundImageUrl) { mutableStateOf(settings.backgroundImageUrl) }
     var uppercase by remember { mutableStateOf(false) }
     val clipboard = readClipboard(context)
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("自定义壁纸", color = palette.text, fontSize = 26.sp)
         Text("用下面的按键输入图片网址，或在右侧手机页面里粘贴。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
         Text(url.ifBlank { "还没有地址" }, color = palette.accent, modifier = Modifier.padding(bottom = 8.dp))
@@ -377,7 +382,7 @@ private fun BackupPage() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var message by remember { mutableStateOf("整份备份会覆盖当前的接口和设置。外观也可以在手机页面里单独改。") }
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("数据与备份", color = palette.text, fontSize = 26.sp)
             Text(message, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
@@ -414,7 +419,7 @@ private fun EnhancePage() {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("豆瓣与播放增强", color = palette.text, fontSize = 26.sp)
         Text("长地址、广告规则和弹幕令牌用手机页面填写。这里用遥控器开关。", color = palette.muted, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
         Text("豆瓣", color = palette.text, fontSize = 18.sp)
@@ -488,7 +493,7 @@ private fun SpiderGate(onCancel: () -> Unit) {
     val palette = LocalPalette.current
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("远程爬虫", color = palette.text, fontSize = 26.sp)
         Text(
             "这会下载并运行配置里的远程代码，可能访问网络和应用数据。只打开你信任的配置。恶意爬虫可以读取本机保存的数据，并发起网络请求。默认关闭；关掉之后会立刻停止执行，首页和搜索不再请求这些站点。",
@@ -524,7 +529,7 @@ private fun AboutPage() {
     val palette = LocalPalette.current
     val context = LocalContext.current
     var licenseHint by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxSize().padding(ScreenPadding).verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().padding(ScreenPadding()).verticalScroll(rememberScrollState())) {
         Text("关于 / 开源许可", color = palette.text, fontSize = 26.sp)
         val crash = remember { app.jianxia.tv.CrashStore.read(context.applicationContext as android.app.Application) }
         if (crash.isNotBlank()) {
@@ -576,6 +581,57 @@ private fun AboutPage() {
             TvButton("打开 iptv-org") { licenseHint = openLicense(context, "https://github.com/iptv-org/iptv") }
             TvButton("打开 MoonTVPlus") { licenseHint = openLicense(context, "https://github.com/mtvpls/MoonTVPlus") }
         }
+    }
+}
+
+@Composable
+private fun CookiePage() {
+    val app = LocalApp.current
+    val palette = LocalPalette.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var note by remember { mutableStateOf("网盘线路要登录信息才能解析。用手机扫右侧二维码粘贴，或在电视上从剪贴板写入。个人影院不内置任何账号。") }
+    fun save(block: (app.jianxia.core.model.AppSettings) -> app.jianxia.core.model.AppSettings, done: String) {
+        scope.launch {
+            app.settings.update(block)
+            note = done
+        }
+    }
+    Row(Modifier.fillMaxSize().padding(ScreenPadding())) {
+        Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
+            Text("网盘 Cookie", color = palette.text, fontSize = 26.sp)
+            Text(note, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+            Text(if (settings.quarkCookie.isBlank()) "夸克：未填写" else "夸克：已保存 ${settings.quarkCookie.length} 个字符", color = palette.text)
+            Text(if (settings.ucCookie.isBlank()) "UC：未填写" else "UC：已保存 ${settings.ucCookie.length} 个字符", color = palette.text, modifier = Modifier.padding(top = 6.dp))
+            Text(if (settings.aliToken.isBlank()) "阿里 token：未填写" else "阿里 token：已保存 ${settings.aliToken.length} 个字符", color = palette.text, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+            Text("夸克：电脑浏览器登录 pan.quark.cn，按 F12 打开网络，刷新后点任意请求，复制请求头里的整段 Cookie。", color = palette.muted, modifier = Modifier.padding(bottom = 6.dp))
+            Text("UC：同样方式打开 drive.uc.cn，复制 Cookie。", color = palette.muted, modifier = Modifier.padding(bottom = 6.dp))
+            Text("阿里云盘：复制自己的 refresh_token。只粘贴 token 本身，不要带 Bearer。", color = palette.muted, modifier = Modifier.padding(bottom = 12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                TvButton("剪贴板写入夸克") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(quarkCookie = text) }, "夸克 Cookie 已保存。重新打开影片后再播放。")
+                }
+                TvButton("剪贴板写入 UC") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(ucCookie = text) }, "UC Cookie 已保存。重新打开影片后再播放。")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TvButton("剪贴板写入阿里") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(aliToken = text) }, "阿里 token 已保存。重新打开影片后再播放。")
+                }
+                TvButton("清空") {
+                    save({ it.copy(quarkCookie = "", ucCookie = "", aliToken = "") }, "已清空网盘登录信息。")
+                }
+            }
+        }
+        PhoneQrCard(modifier = Modifier.padding(start = 24.dp))
     }
 }
 

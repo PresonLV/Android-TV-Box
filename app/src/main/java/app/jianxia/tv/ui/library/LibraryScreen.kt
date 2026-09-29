@@ -20,6 +20,7 @@ import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.ui.EmptyHint
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
+import app.jianxia.tv.ui.PageTitle
 import app.jianxia.tv.ui.PosterCard
 import app.jianxia.tv.ui.ScreenPadding
 import app.jianxia.tv.ui.TvButton
@@ -35,8 +36,8 @@ fun LibraryScreen(favorites: Boolean, onOpen: (String) -> Unit, onPlay: () -> Un
     val favoriteItems by app.library.favorites().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
     val (posterW, posterH) = posterSize(settings.posterSize)
-    Column(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        Text(if (favorites) "我的收藏" else "观看历史", color = palette.text, fontSize = 28.sp)
+    Column(Modifier.fillMaxSize().padding(ScreenPadding())) {
+        PageTitle(if (favorites) "我的收藏" else "观看历史")
         if (favorites && favoriteItems.isEmpty()) {
             EmptyHint("还没有收藏", "在详情页把片子收进来，这里会按标题记住。", "知道了") {}
             return
@@ -54,9 +55,9 @@ fun LibraryScreen(favorites: Boolean, onOpen: (String) -> Unit, onPlay: () -> Un
         if (favorites) {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(posterW + 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
             ) {
                 items(favoriteItems, key = { it.titleKey }) { item ->
                     PosterCard(item.title, item.pic, item.typeName, posterW, posterH, onClick = { onOpen(item.titleKey) })
@@ -65,8 +66,8 @@ fun LibraryScreen(favorites: Boolean, onOpen: (String) -> Unit, onPlay: () -> Un
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(240.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(history, key = { it.titleKey }) { item ->
                     PosterCard(

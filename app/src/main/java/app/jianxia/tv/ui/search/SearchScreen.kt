@@ -148,8 +148,9 @@ fun SearchScreen(onOpen: (String) -> Unit) {
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val vm: SearchViewModel = appViewModel { SearchViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-    val pending = app.session.pendingSearch
-    LaunchedEffect(pending) {
+    val tick by app.session.tick.collectAsStateWithLifecycle()
+    LaunchedEffect(tick) {
+        val pending = app.session.pendingSearch
         if (!pending.isNullOrBlank()) {
             app.session.pendingSearch = null
             vm.submit(pending)
@@ -157,9 +158,17 @@ fun SearchScreen(onOpen: (String) -> Unit) {
     }
     val (posterW, posterH) = posterSize(settings.posterSize)
     val candidates = if (state.pinyin) app.pinyin.candidates(state.buffer) else emptyList()
-    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
-        Column(Modifier.width(420.dp).verticalScroll(rememberScrollState())) {
-            Text(state.query.ifBlank { "搜索片名" }, color = if (state.query.isBlank()) palette.muted else palette.text, fontSize = 26.sp, fontWeight = FontWeight.Medium)
+    Row(
+        Modifier.fillMaxSize().padding(ScreenPadding()),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        Column(
+            Modifier.width(560.dp).verticalScroll(rememberScrollState()),
+            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+        ) {
+            Text("搜索", color = palette.text, fontSize = 32.sp, fontWeight = FontWeight.Medium)
+            Text(state.query.ifBlank { "搜索片名" }, color = if (state.query.isBlank()) palette.muted else palette.accent, fontSize = 18.sp, modifier = Modifier.padding(top = 8.dp))
             Text(
                 if (state.buffer.isBlank()) "拼音或字母" else state.buffer,
                 color = palette.accent,
@@ -172,12 +181,15 @@ fun SearchScreen(onOpen: (String) -> Unit) {
                 }
             }
             listOf("ABCDEF", "GHIJKL", "MNOPQR", "STUVWX", "YZ").forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                     row.forEach { letter -> Keycap(letter.toString()) { vm.typeLetter(letter.toString()) } }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                 "1234567890".forEach { digit -> Keycap(digit.toString()) { vm.typeQuery(digit.toString()) } }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                listOf(".", ":", "/", "-", "_").forEach { symbol -> Keycap(symbol) { vm.typeQuery(symbol) } }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TvButton(if (state.pinyin) "拼音" else "ABC", onClick = vm::toggleMode)
@@ -194,10 +206,20 @@ fun SearchScreen(onOpen: (String) -> Unit) {
                 }
             }
         }
-        Column(Modifier.padding(start = 24.dp).weight(1f).fillMaxHeight()) {
+        Column(Modifier.weight(1f).fillMaxHeight()) {
             when {
                 state.loading -> CircularProgressIndicator(color = palette.accent)
                 state.query.isBlank() -> Text("用遥控器输入片名。拼音会给出常用字，也可以切换成 ABC。", color = palette.muted, fontSize = 16.sp)
+                state.results.isEmpty() -> Column {
+                    Text("没有找到片源", color = palette.text, fontSize = 28.sp, fontWeight = FontWeight.Medium)
+                    Text(state.message ?: "这些来源里没有这部片子。", color = palette.muted, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+                settings.searchStyle == "list" -> Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text(state.message.orEmpty(), color = palette.muted, modifier = Modifier.padding(bottom = 10.dp))
+                    state.results.forEach { item ->
+                        TvButton(listOfNotNull(item.title, item.year, item.remarks).joinToString("  ·  ")) { onOpen(item.key) }
+                    }
+                }
                 else -> {
                     Text(state.message.orEmpty(), color = palette.muted, modifier = Modifier.padding(bottom = 10.dp))
                     LazyVerticalGrid(

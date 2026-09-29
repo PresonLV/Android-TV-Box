@@ -442,9 +442,9 @@ private fun WideCard(
         modifier = Modifier.width(228.dp).onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = palette.surface, focusedContainerColor = palette.surface2),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (reduceMotion) 1f else 1.06f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (reduceMotion) 1f else 1.05f),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(3.dp, palette.accent), shape = RoundedCornerShape(14.dp)),
+            focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(14.dp)),
         ),
         glow = ClickableSurfaceDefaults.glow(
             focusedGlow = Glow(elevationColor = palette.accent.copy(alpha = 0.55f), elevation = if (reduceMotion) 0.dp else 14.dp),
@@ -480,9 +480,9 @@ private fun PosterTile(
         modifier = Modifier.width(width).onFocusChanged { if (it.isFocused) onFocus() },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
         colors = ClickableSurfaceDefaults.colors(containerColor = palette.surface, focusedContainerColor = palette.surface2),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = if (reduceMotion) 1f else 1.08f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = if (reduceMotion) 1f else 1.05f),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(3.dp, palette.accent), shape = RoundedCornerShape(14.dp)),
+            focusedBorder = Border(BorderStroke(2.dp, palette.accent), shape = RoundedCornerShape(14.dp)),
         ),
         glow = ClickableSurfaceDefaults.glow(
             focusedGlow = Glow(elevationColor = palette.accent.copy(alpha = 0.55f), elevation = if (reduceMotion) 0.dp else 16.dp),

@@ -17,6 +17,8 @@ import app.jianxia.core.model.ParseDef
 import app.jianxia.core.model.SiteKind
 import app.jianxia.core.parser.extractMediaUrl
 import app.jianxia.core.parser.isDirectMediaUrl
+import app.jianxia.core.spider.PlayText
+import app.jianxia.core.spider.SpiderFault
 import app.jianxia.core.parser.mediaMime
 import app.jianxia.core.parser.needsSniff
 import app.jianxia.core.parser.urlEncode
@@ -33,6 +35,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -164,6 +168,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         kernel = parseEngine(preferredEngineWire(settings.playerEngine, settings.playerEngineChosen, Build.SUPPORTED_ABIS.toList()))
         speed = settings.defaultSpeed
         aspect = settings.aspect
+        created.setSurfaceKind(settings.videoRender)
         created.setEngine(kernel, software)
         created.setSpeed(speed)
         created.setAspect(aspect)
@@ -548,14 +553,27 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         current = candidate
         introApplied = false
         viewModelScope.launch {
+            _ui.update { it.copy(buffering = true, error = null, hint = "正在解析「${candidate.lineName}」", playing = false) }
             val media = try {
-                resolve(candidate)
+                withTimeout(18_000) { resolve(candidate) }
             } catch (error: Throwable) {
-                if (error is CancellationException) throw error
-                _ui.update { it.copy(hint = UserFacingError.message(error)) }
+                if (error is CancellationException && error !is TimeoutCancellationException) throw error
+                if (token != playToken) return@launch
+                val reason = when {
+                    error is TimeoutCancellationException -> "超过 18 秒没有画面"
+                    else -> {
+                        val friendly = UserFacingError.message(error)
+                        if (friendly == UserFacingError.RETRY) SpiderFault.explain(error) else friendly
+                    }
+                }
+                failover(reason.ifBlank { "没有找到片源" })
                 return@launch
             }
             if (token != playToken) return@launch
+            if (media.url.isBlank()) {
+                failover("没有找到片源")
+                return@launch
+            }
             val settings = app.settings.state.value
             val open = StreamOpen(
                 url = media.url,
@@ -627,6 +645,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
             url = resolvePlayUrl(url, parses, app.http)
         }
         if (!needsSniff(url, parse, jx)) return url
+        if (!app.settings.state.value.sniffEnabled) return url
         val context = uiContext ?: return url
         val sniffed = runCatching { WebSniffer.sniff(context, url, headers) }.getOrNull()
         return sniffed?.takeIf { it.isNotBlank() } ?: url
@@ -644,9 +663,17 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private suspend fun probeAll(list: List<Candidate>): List<LineProbe> = coroutineScope {
         list.map { candidate ->
             async(Dispatchers.IO) {
-                val url = runCatching { resolve(candidate).url }.getOrDefault(candidate.url)
-                val measure = app.http.probe(url)
-                LineProbe(candidate.id, measure.connectMs, measure.firstByteMs, measure.resolutionHeight, measure.ok)
+                if (PlayText.pendingLabel(candidate.lineName, candidate.url) != null) {
+                    LineProbe(candidate.id, 0, 0, null, true)
+                } else {
+                    val url = runCatching { resolve(candidate).url }.getOrDefault(candidate.url)
+                    if (PlayText.pendingLabel(candidate.lineName, url) != null || PlayText.isLocalProxy(url)) {
+                        LineProbe(candidate.id, 0, 0, null, true)
+                    } else {
+                        val measure = app.http.probe(url)
+                        LineProbe(candidate.id, measure.connectMs, measure.firstByteMs, measure.resolutionHeight, measure.ok)
+                    }
+                }
             }
         }.awaitAll()
     }
@@ -766,9 +793,12 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 selectedLineId = selected?.id.orEmpty(),
                 lines = list.map { candidate ->
                     val probe = probes[candidate.id]
+                    val pending = PlayText.pendingLabel(candidate.lineName, candidate.url)
                     val detail = when {
+                        pending != null && (probe == null || (probe.connectMs == 0L && probe.firstByteMs == 0L)) -> pending
                         probe == null -> null
                         !probe.ok -> "不可用"
+                        probe.connectMs == 0L && probe.firstByteMs == 0L && pending != null -> pending
                         else -> buildString {
                             append("${probe.connectMs + probe.firstByteMs} 毫秒")
                             probe.resolutionHeight?.let { height -> append(" · ${height}p") }
@@ -798,13 +828,16 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         val candidate = current ?: return
         val position = host?.positionMs ?: _ui.value.positionMs
         if (position < 1_000) return
+        val settings = app.settings.state.value
+        val stored = if (settings.mergeHistory) currentItem else currentItem.copy(key = currentItem.key + "@" + candidate.sourceKey)
         app.library.saveHistory(
-            item = currentItem,
+            item = stored,
             episodeIndex = episodeIndex,
             episodeName = candidate.episodeName,
             positionMs = position,
             durationMs = host?.durationMs ?: 0,
             lineId = candidate.id,
+            keep = settings.historyLimit,
         )
     }
 

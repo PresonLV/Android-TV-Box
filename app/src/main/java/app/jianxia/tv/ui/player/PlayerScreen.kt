@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +38,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -194,30 +199,38 @@ fun PlayerScreen(onBack: () -> Unit) {
             }
         }
         if (ui.panel != PlayerPanel.Hidden || ui.error != null || ui.countdown != null) {
+            val transport = ui.panel == PlayerPanel.Main || ui.panel == PlayerPanel.Hidden
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
             Column(
-                Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.28f)).padding(36.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (transport && ui.error == null && ui.countdown == null) {
+                            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.82f)))
+                        } else {
+                            Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.2f), Color.Black.copy(alpha = 0.78f)))
+                        },
+                    )
+                    .padding(horizontal = 48.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.Bottom,
             ) {
                 if (ui.countdown != null) {
                     Text("${ui.countdown} 秒后播放下一集", color = Color.White, fontSize = 22.sp)
                     TvButton("取消", modifier = Modifier.padding(top = 8.dp), onClick = vm::cancelCountdown)
                 }
-                ui.hint?.let { Text(it, color = palette.accent, modifier = Modifier.padding(bottom = 8.dp)) }
-                ui.error?.let { Text(it, color = palette.danger, fontSize = 20.sp, modifier = Modifier.padding(bottom = 8.dp)) }
-                Text(ui.title, color = Color.White, fontSize = 28.sp)
-                Text("${ui.episodeName}    ${ui.lineLabel}", color = Color(0xFFD9D3C7), modifier = Modifier.padding(top = 4.dp, bottom = 12.dp))
-                val fraction = if (ui.durationMs > 0) ui.positionMs / ui.durationMs.toFloat() else 0f
-                TvButton(
-                    "${formatClock(ui.positionMs)} / ${formatClock(ui.durationMs)}",
-                    onClick = vm::playPause,
-                    modifier = Modifier.focusRequester(seekFocus).onFocusChanged { seekFocused = it.isFocused }.fillMaxWidth(),
-                )
-                Box(
-                    Modifier.padding(vertical = 8.dp).fillMaxWidth().height(4.dp).clip(RoundedCornerShape(99.dp)).background(Color.White.copy(alpha = 0.25f)),
-                ) {
-                    Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(4.dp).background(palette.accent))
+                ui.hint?.let { Text(it, color = palette.accent, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                ui.error?.let { Text(it, color = palette.danger, fontSize = 18.sp, modifier = Modifier.padding(bottom = 8.dp)) }
+                if (settings.playerBar != "slim" || !transport) {
+                    Text(ui.title, color = Color.White, fontSize = 28.sp, maxLines = 1)
+                    Text(
+                        listOf(ui.episodeName, ui.lineLabel).filter { it.isNotBlank() }.joinToString("   "),
+                        color = Color(0xFFD9D3C7),
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+                    )
                 }
-                if (ui.probing) Text("正在测速", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
+                val fraction = if (ui.durationMs > 0) ui.positionMs / ui.durationMs.toFloat() else 0f
+                if (ui.probing) Text("正在测速", color = palette.muted, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
                 when (ui.panel) {
                     PlayerPanel.Episodes -> {
                         var episodePage by remember(ui.selectedLineId, ui.episodes.size) {
@@ -356,32 +369,47 @@ fun PlayerScreen(onBack: () -> Unit) {
                             }
                         }
                     }
-                    else -> FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        TvButton(if (ui.playing) "暂停" else "播放", onClick = vm::playPause)
-                        TvButton("上一集", enabled = ui.canPrev, onClick = vm::previous)
-                        TvButton("下一集", enabled = ui.canNext, onClick = vm::next)
-                        TvButton("线路") { vm.panel(PlayerPanel.Lines) }
-                        TvButton("倍速") { vm.panel(PlayerPanel.Speed) }
-                        TvButton("画面") { vm.panel(PlayerPanel.Aspect) }
-                        TvButton("片头片尾") { vm.panel(PlayerPanel.Skip) }
-                        TvButton(if (overlay.danmakuOn) "弹幕" else "弹幕关") { vm.panel(PlayerPanel.Danmaku) }
-                        TvButton("字幕") { vm.panel(PlayerPanel.Subtitle) }
-                        TvButton("内核 ${parseEngine(ui.engine).label()}") { vm.panel(PlayerPanel.Engine) }
-                        TvButton("用外部播放器打开") { vm.openExternal(context) }
+                    else -> {
+                        val dock: @Composable () -> Unit = {
+                            TransportBar(
+                                playing = ui.playing,
+                                canPrev = ui.canPrev,
+                                canNext = ui.canNext,
+                                position = formatClock(ui.positionMs),
+                                duration = formatClock(ui.durationMs),
+                                fraction = fraction,
+                                seekModifier = Modifier.focusRequester(seekFocus).onFocusChanged { seekFocused = it.isFocused },
+                                onPlay = vm::playPause,
+                                onPrev = vm::previous,
+                                onNext = vm::next,
+                                onMore = { vm.panel(PlayerPanel.Menu) },
+                            )
+                        }
+                        when (settings.playerBar) {
+                            "float" -> Row(
+                                Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(Color.Black.copy(alpha = 0.72f)).padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) { dock() }
+                            else -> dock()
+                        }
                     }
                 }
             }
+            }
         }
         if (ui.buffering && ui.error == null && !ui.empty) {
-            Text(
-                if (ui.bufferSpeed.isBlank()) "正在缓冲" else "正在缓冲  ${ui.bufferSpeed}",
-                color = Color.White,
-                modifier = Modifier.align(Alignment.Center).clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.45f)).padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = palette.accent)
+                Text(
+                    ui.hint ?: ui.lineLabel.ifBlank { "正在缓冲" },
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    modifier = Modifier.padding(top = 16.dp),
+                )
+                if (ui.bufferSpeed.isNotBlank()) {
+                    Text(ui.bufferSpeed, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
         }
         if (confirmLeave) {
             Column(
@@ -394,6 +422,80 @@ fun PlayerScreen(onBack: () -> Unit) {
                     TvButton("退出") { onBack() }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TransportBar(
+    playing: Boolean,
+    canPrev: Boolean,
+    canNext: Boolean,
+    position: String,
+    duration: String,
+    fraction: Float,
+    seekModifier: Modifier,
+    onPlay: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onMore: () -> Unit,
+) {
+    val palette = LocalPalette.current
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(position, color = Color.White, fontSize = 14.sp)
+            Box(
+                Modifier
+                    .padding(horizontal = 16.dp)
+                    .weight(1f)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(Color.White.copy(alpha = 0.28f)),
+            ) {
+                Box(Modifier.fillMaxWidth(fraction.coerceIn(0f, 1f)).height(3.dp).background(palette.accent))
+            }
+            Text(duration, color = Color.White, fontSize = 14.sp)
+        }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(top = 8.dp),
+        ) {
+            PlayerIcon(if (playing) "Ⅱ" else "▶", if (playing) "暂停" else "播放", seekModifier, onPlay)
+            PlayerIcon("⏮", "上一集", Modifier, onPrev, canPrev)
+            PlayerIcon("⏭", "下一集", Modifier, onNext, canNext)
+            PlayerIcon("···", "更多", Modifier, onMore)
+        }
+    }
+}
+
+@Composable
+private fun PlayerIcon(
+    glyph: String,
+    label: String,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    val palette = LocalPalette.current
+    val shape = RoundedCornerShape(12.dp)
+    androidx.tv.material3.Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier,
+        shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(shape),
+        colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.12f),
+            contentColor = Color.White,
+            focusedContainerColor = palette.accent,
+            focusedContentColor = palette.onAccent,
+        ),
+        scale = app.jianxia.tv.ui.focusScale(),
+        glow = app.jianxia.tv.ui.focusGlow(),
+        border = app.jianxia.tv.ui.focusBorder(shape),
+    ) {
+        Box(Modifier.size(48.dp).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+            Text(glyph, fontSize = 20.sp)
         }
     }
 }

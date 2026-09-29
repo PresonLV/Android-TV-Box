@@ -14,7 +14,9 @@ import app.jianxia.core.parser.cleanScore
 import app.jianxia.core.parser.text
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 data class SpiderPlay(
@@ -36,7 +38,7 @@ object SpiderJson {
             val id = obj.text("type_id", "id") ?: return@mapNotNull null
             VodClass(id, obj.text("type_name", "name") ?: id)
         }
-        val items = items(root["list"] as? JsonArray, site)
+        val items = items(itemArray(root), site)
         return VodPage(
             page = root.text("page")?.toIntOrNull() ?: 1,
             pageCount = root.text("pagecount", "pageCount")?.toIntOrNull() ?: 1,
@@ -69,11 +71,18 @@ object SpiderJson {
         val kept = headers.filterKeys { key ->
             !key.equals("User-Agent", true) && !key.equals("Referer", true)
         }
+        val media = root.text("url").orEmpty()
+        val prefix = root.text("playUrl", "play_url").orEmpty()
+        val url = when {
+            media.isBlank() -> prefix
+            prefix.isBlank() || media.startsWith(prefix) -> media
+            else -> prefix + media
+        }
         return SpiderPlay(
-            url = root.text("url").orEmpty(),
+            url = url,
             headers = kept,
-            parse = root.text("parse")?.toIntOrNull() ?: 0,
-            jx = root.text("jx")?.toIntOrNull() ?: 0,
+            parse = PlayText.flag(root.text("parse")),
+            jx = PlayText.flag(root.text("jx")),
             userAgent = userAgent,
             referer = referer,
         )
@@ -90,6 +99,74 @@ object SpiderJson {
         )
     }
 
+    private fun itemArray(root: JsonObject): JsonArray? {
+        val direct = root["list"] ?: root["data"] ?: root["video"] ?: root["videos"]
+        when (direct) {
+            is JsonArray -> return direct
+            is JsonObject -> return JsonArray(listOf(direct))
+            else -> Unit
+        }
+        if (root["vod_name"] != null || root["name"] != null || root["vod_play_url"] != null) {
+            return JsonArray(listOf(root))
+        }
+        return null
+    }
+
+    private fun playLines(obj: JsonObject): List<PlayLine> {
+        structured(obj)?.let { if (it.isNotEmpty()) return it }
+        val from = textish(obj["vod_play_from"] ?: obj["play_from"] ?: obj["from"])
+        val urls = textish(obj["vod_play_url"] ?: obj["play_url"] ?: obj["urls"])
+        return PlayText.lines(from, urls)
+    }
+
+    private fun structured(obj: JsonObject): List<PlayLine>? {
+        val node = obj["vod_play_list"] ?: obj["play_list"] ?: return null
+        val array = node as? JsonArray ?: return null
+        return array.mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            val name = item.text("flag", "from", "name").orEmpty().ifBlank { "默认" }
+            val urls = item["urls"] ?: item["episodes"] ?: item["url"]
+            val episodes = when (urls) {
+                is JsonArray -> urls.mapNotNull { episodeOf(it) }
+                else -> PlayText.lines(name, textish(urls)).firstOrNull()?.episodes.orEmpty()
+            }
+            if (episodes.isEmpty()) null else PlayLine(name, episodes)
+        }
+    }
+
+    private fun episodeOf(element: JsonElement): Episode? {
+        when (element) {
+            is JsonObject -> {
+                val url = element.text("url", "playUrl").orEmpty()
+                if (url.isBlank()) return null
+                return Episode(element.text("name", "title").orEmpty().ifBlank { "播放" }, url)
+            }
+            is JsonPrimitive -> {
+                val text = element.asText().orEmpty()
+                if (text.isBlank()) return null
+                return PlayText.lines("", text).firstOrNull()?.episodes?.firstOrNull()
+            }
+            else -> return null
+        }
+    }
+
+    private fun textish(element: JsonElement?): String {
+        when (element) {
+            null -> return ""
+            is JsonArray -> {
+                val objects = element.filterIsInstance<JsonObject>()
+                if (objects.isNotEmpty() && objects.all { it["url"] != null || it["playUrl"] != null }) {
+                    return objects.mapNotNull { item ->
+                        val url = item.text("url", "playUrl").orEmpty()
+                        if (url.isBlank()) null else "${item.text("name", "title").orEmpty().ifBlank { "播放" }}$$url"
+                    }.joinToString("#")
+                }
+                return element.mapNotNull { it.asText() }.joinToString("$$$")
+            }
+            else -> return element.asText().orEmpty()
+        }
+    }
+
     private fun items(array: JsonArray?, site: VodSiteDef): List<VodItem> {
         if (array == null) return emptyList()
         return array.mapNotNull { element ->
@@ -104,7 +181,7 @@ object SpiderJson {
                 siteKind = SiteKind.SPIDER,
                 id = id,
                 title = title,
-                year = obj.text("vod_year", "year"),
+                year = PlayText.year(obj.text("vod_year", "year")),
                 pic = app.jianxia.core.parser.PosterRefs.store(
                     obj.text("vod_pic", "pic"),
                     site.api,
@@ -119,7 +196,7 @@ object SpiderJson {
                 director = obj.text("vod_director"),
                 content = obj.text("vod_content"),
                 score = cleanScore(obj.text("vod_douban_score", "vod_score")),
-                lines = lines(obj.text("vod_play_from").orEmpty(), obj.text("vod_play_url").orEmpty()),
+                lines = playLines(obj),
                 userAgent = site.userAgent,
                 referer = site.referer,
                 headers = site.headers,
@@ -130,29 +207,20 @@ object SpiderJson {
         }
     }
 
-    private fun lines(from: String, urls: String): List<PlayLine> {
-        if (from.isBlank() && urls.isBlank()) return emptyList()
-        val flags = if (from.isBlank()) listOf("默认") else from.split("$$$")
-        val groups = urls.split("$$$")
-        return flags.mapIndexedNotNull { index, name ->
-            val episodes = groups.getOrElse(index) { "" }.split("#").mapNotNull { part ->
-                val piece = part.trim()
-                if (piece.isEmpty()) return@mapNotNull null
-                val bits = piece.split("$")
-                if (bits.size >= 2) {
-                    Episode(bits.first().ifBlank { "播放" }, bits.drop(1).joinToString("$"))
-                } else {
-                    Episode("播放", piece)
-                }
-            }
-            if (episodes.isEmpty()) null else PlayLine(name.ifBlank { "默认" }, episodes)
-        }
-    }
-
     private fun objectOf(raw: String?): JsonObject? {
-        val text = raw?.trim().orEmpty()
+        var text = raw?.trim().orEmpty().removePrefix("\uFEFF")
         if (text.isEmpty() || text == "null") return null
-        return runCatching { json.parseToJsonElement(text).jsonObject }.getOrNull()
+        if (!text.startsWith("{") && !text.startsWith("\"") && !text.startsWith("[")) {
+            val start = text.indexOf('{')
+            val end = text.lastIndexOf('}')
+            if (start >= 0 && end > start) text = text.substring(start, end + 1)
+        }
+        val element = runCatching { json.parseToJsonElement(text) }.getOrNull() ?: return null
+        return when (element) {
+            is JsonObject -> element
+            is JsonPrimitive -> if (element.isString) objectOf(element.content) else null
+            else -> null
+        }
     }
 }
 

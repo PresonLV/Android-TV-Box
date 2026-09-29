@@ -3,10 +3,14 @@ package app.jianxia.tv.spider
 import android.content.Context
 import android.os.Build
 import android.os.Process
+import android.util.Log
 import app.jianxia.core.model.VodItem
 import app.jianxia.core.spider.ArmElf
+import app.jianxia.core.spider.FileInstall
 import app.jianxia.core.model.VodPage
 import app.jianxia.core.model.VodSiteDef
+import app.jianxia.core.spider.PlayText
+import app.jianxia.core.spider.SpiderFault
 import app.jianxia.core.spider.SpiderJson
 import app.jianxia.core.spider.SpiderPlay
 import app.jianxia.core.spider.jarClassNames
@@ -15,6 +19,7 @@ import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Modifier
 import java.util.concurrent.atomic.AtomicInteger
+import com.github.catvod.spider.Proxy
 import java.util.zip.ZipFile
 
 internal class JarEngine(
@@ -36,11 +41,37 @@ internal class JarEngine(
         loaders.clear()
     }
 
+    fun dropSessions() {
+        sessions.clear()
+    }
+
+    fun bindProxy(base: String) {
+        val value = if (base.endsWith("?")) base else "$base?"
+        Proxy.setUrl(value)
+        loaders.values.forEach { loader ->
+            val type = runCatching { loader.loadClass("com.github.catvod.spider.Proxy") }.getOrNull() ?: return@forEach
+            val set = type.methods.firstOrNull {
+                it.name == "setUrl" && Modifier.isStatic(it.modifiers) && it.parameterTypes.size == 1
+            }
+            runCatching {
+                set?.isAccessible = true
+                set?.invoke(null, value)
+            }
+            type.declaredFields.firstOrNull { it.name == "url" || it.name == "proxyUrl" }?.let { field ->
+                if (!Modifier.isStatic(field.modifiers)) return@let
+                field.isAccessible = true
+                if (field.type == String::class.java) runCatching { field.set(null, value) }
+            }
+        }
+    }
+
     fun home(def: VodSiteDef): VodPage {
         val spider = session(def)
         val home = invoke(spider, "homeContent", true)?.toString().orEmpty()
         val extra = runCatching { invokeOptional(spider, "homeVideoContent")?.toString().orEmpty() }.getOrDefault("")
-        return SpiderJson.merge(SpiderJson.page(home, def), SpiderJson.page(extra, def))
+        val page = SpiderJson.merge(SpiderJson.page(home, def), SpiderJson.page(extra, def))
+        Log.i("JianXia", "home ${def.key} classes=${page.classes.size} filters=${page.filters.keys} items=${page.items.size}")
+        return page
     }
 
     fun category(def: VodSiteDef, tid: String, page: Int, extend: Map<String, String>): VodPage {
@@ -51,7 +82,23 @@ internal class JarEngine(
 
     fun detail(def: VodSiteDef, id: String): VodItem? {
         val spider = session(def)
-        val raw = invoke(spider, "detailContent", arrayListOf(id))?.toString()
+        var last: Throwable? = null
+        val raw = listOf<Any>(arrayListOf(id), id).firstNotNullOfOrNull { arg ->
+            try {
+                val text = invokeOptional(spider, "detailContent", arg)?.toString().orEmpty()
+                text.takeIf { it.isNotBlank() && it != "null" && it != "{}" }
+            } catch (error: Throwable) {
+                last = error
+                Log.w("JianXia", "detail ${def.key} ${error.javaClass.simpleName}: ${error.message}")
+                null
+            }
+        }
+        if (raw == null) {
+            val cause = last
+            if (cause != null) throw IllegalStateException(SpiderFault.explain(cause), cause)
+            return null
+        }
+        Log.i("JianXia", "detail ${def.key} bytes=${raw.length} head=${raw.take(180).replace('\n', ' ')}")
         return SpiderJson.detail(raw, def, id)
     }
 
@@ -113,7 +160,8 @@ internal class JarEngine(
                 runCatching { loader.loadClass(name) }.getOrNull()
             } ?: throw IllegalStateException("找不到爬虫类 ${def.api}")
             val spider = type.getDeclaredConstructor().newInstance()
-            val ext = resolveExt(def.spiderExt, def.userAgent)
+            // 扩展原样交给爬虫。站点根地址、JSON 和加密串都不能先下载成正文。
+            val ext = PlayText.mergeCookies(def.spiderExt.trim(), DriveCookies.quark, DriveCookies.uc, DriveCookies.ali)
             val app = context.applicationContext
             invokeOptional(spider, "init", app, ext) ?: invokeOptional(spider, "init", app)
             spider
@@ -124,6 +172,14 @@ internal class JarEngine(
 
     private fun boot(loader: JarClassLoader) {
         ProcessAbi.alignBuildFields()
+        // 饭太硬用只读方式打开 databases/tv。文件不存在时会直接失败。
+        runCatching {
+            val file = context.getDatabasePath("tv")
+            file.parentFile?.mkdirs()
+            if (!file.exists()) {
+                android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(file, null).close()
+            }
+        }
         val init = runCatching { loader.loadClass("com.github.catvod.spider.Init") }.getOrNull() ?: return
         val method = init.methods.firstOrNull {
             it.name == "init" && Modifier.isStatic(it.modifiers) && it.parameterTypes.size == 1
@@ -140,18 +196,41 @@ internal class JarEngine(
             }
             throw cause
         }
+        // 饭太硬外层 Init 只保存自己的 Application。真正的爬虫在解密后的 dex 里，
+        // 静态初始化会调用 InitOrigin.context().getSharedPreferences。必须在创建爬虫之前写入。
+        primeInner(init, arg)
     }
 
-    private fun resolveExt(raw: String, userAgent: String): String {
-        val value = raw.trim()
-        if (!value.startsWith("http://") && !value.startsWith("https://")) return value
-        val text = cache.text(value, userAgent)
-        return text.ifBlank { value }
+    private fun primeInner(outerInit: Class<*>, arg: Context) {
+        val inner = runCatching {
+            val loaderMethod = outerInit.methods.firstOrNull {
+                it.name == "loader" && Modifier.isStatic(it.modifiers) && it.parameterTypes.isEmpty()
+            } ?: return
+            loaderMethod.isAccessible = true
+            loaderMethod.invoke(null) as? ClassLoader
+        }.getOrNull() ?: return
+        val origin = runCatching { inner.loadClass("com.github.catvod.spider.InitOrigin") }.getOrNull() ?: return
+        val method = origin.methods.firstOrNull {
+            it.name == "init" && Modifier.isStatic(it.modifiers) && it.parameterTypes.size == 1
+        } ?: return
+        val app = context.applicationContext
+        val value = if (method.parameterTypes[0].isAssignableFrom(app.javaClass)) app else arg
+        method.isAccessible = true
+        try {
+            method.invoke(null, value)
+        } catch (error: InvocationTargetException) {
+            val cause = error.targetException ?: error
+            Log.w("JianXia", "InitOrigin.init: ${cause.javaClass.simpleName}: ${cause.message}")
+        }
     }
 
     private fun classLoader(jar: File): JarClassLoader {
-        val libs = File(jar.parentFile, jar.nameWithoutExtension + "-lib")
+        val root = context.getDir("spider_libs", Context.MODE_PRIVATE)
+        val libs = File(root, jar.nameWithoutExtension)
         libs.mkdirs()
+        libs.setReadable(true, false)
+        libs.setWritable(true, true)
+        libs.setExecutable(true, false)
         extractLibs(jar, libs)
         val opt = File(context.codeCacheDir, "spider-opt").apply { mkdirs() }
         return JarClassLoader(jar.absolutePath, opt.absolutePath, libs.absolutePath, context.classLoader)
@@ -159,8 +238,6 @@ internal class JarEngine(
 
     private fun extractLibs(jar: File, dest: File) {
         val abi = ProcessAbi.name().lowercase()
-        dest.setReadable(true, false)
-        dest.setExecutable(true, false)
         ZipFile(jar).use { zip ->
             zip.entries().asSequence().filter { !it.isDirectory && it.name.endsWith(".so") }.forEach { entry ->
                 if (!matchesAbi(entry.name, abi)) return@forEach
@@ -173,11 +250,7 @@ internal class JarEngine(
     private fun writeLib(dest: File, name: String, bytes: ByteArray) {
         val targets = if (name.startsWith("lib")) listOf(name) else listOf(name, "lib$name")
         targets.forEach { base ->
-            val file = File(dest, base)
-            file.writeBytes(bytes)
-            file.setReadable(true, false)
-            file.setWritable(false, false)
-            file.setExecutable(true, false)
+            FileInstall.place(dest, base, bytes, executable = true, readOnly = false)
         }
     }
 
@@ -195,15 +268,36 @@ internal class JarEngine(
     }
 
     private fun invoke(target: Any, name: String, vararg args: Any?): Any? = synchronized(target) {
-        val method = target.javaClass.methods.firstOrNull { candidate ->
-            candidate.name == name && candidate.parameterTypes.size == args.size
-        } ?: throw NoSuchMethodException(name)
+        val method = target.javaClass.methods
+            .filter { it.name == name && it.parameterTypes.size == args.size }
+            .sortedByDescending { candidate ->
+                candidate.parameterTypes.indices.count { index -> compatible(candidate.parameterTypes[index], args[index]) }
+            }
+            .firstOrNull { candidate ->
+                candidate.parameterTypes.indices.all { index -> compatible(candidate.parameterTypes[index], args[index]) }
+            }
+            ?: throw NoSuchMethodException(name)
         method.isAccessible = true
         try {
             method.invoke(target, *args)
         } catch (error: InvocationTargetException) {
             throw error.targetException ?: error
         }
+    }
+
+    private fun compatible(type: Class<*>, arg: Any?): Boolean {
+        if (arg == null) return !type.isPrimitive
+        if (type.isPrimitive) {
+            return when (type) {
+                java.lang.Boolean.TYPE -> arg is Boolean
+                Integer.TYPE -> arg is Int
+                java.lang.Long.TYPE -> arg is Long || arg is Int
+                else -> true
+            }
+        }
+        if (type.isInstance(arg)) return true
+        if (arg is java.util.Collection<*> && java.util.Collection::class.java.isAssignableFrom(type)) return true
+        return false
     }
 
     private fun invokeOptional(target: Any, name: String, vararg args: Any?): Any? = try {

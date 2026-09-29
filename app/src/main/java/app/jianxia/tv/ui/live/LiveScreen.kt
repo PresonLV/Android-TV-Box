@@ -439,7 +439,7 @@ fun LiveScreen() {
         vm.remember(channel.url)
     }
     when {
-        state.loading -> Box(Modifier.fillMaxSize().padding(ScreenPadding)) { CircularProgressIndicator(color = palette.accent) }
+        state.loading -> Box(Modifier.fillMaxSize().padding(ScreenPadding())) { CircularProgressIndicator(color = palette.accent) }
         state.channels.isEmpty() && !state.public && !state.showingSports && !state.sportsLoading -> EmptyHint(
             "还没有直播",
             state.error ?: "可以添加公共频道，或在设置里加入自己的 M3U / TXT 直播源。",
@@ -462,8 +462,9 @@ fun LiveScreen() {
                 }
             },
         ) {
-            Column(Modifier.width(380.dp).fillMaxHeight().padding(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.width(400.dp).fillMaxHeight().padding(ScreenPadding())) {
+                Text("直播", color = palette.text, fontSize = 32.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium, modifier = Modifier.padding(bottom = 16.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     SelectChip(SportsLive.LABEL, state.showingSports) { vm.showSports() }
                     if (state.showingSports) {
                         SelectChip("全部", false) { vm.showAll() }

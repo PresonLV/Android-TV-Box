@@ -63,11 +63,11 @@ object AppearanceCatalog {
     )
     val engines = listOf(
         AppearanceItem("vlc", "VLC"),
-        AppearanceItem("exo", "系统 (ExoPlayer)"),
+        AppearanceItem("exo", "EXO播放器"),
     )
     val decoders = listOf(
-        AppearanceItem("hardware", "硬件"),
-        AppearanceItem("software", "软件"),
+        AppearanceItem("hardware", "硬解"),
+        AppearanceItem("software", "软解"),
     )
     val speeds = listOf(
         AppearanceItem("0.75", "0.75x"),
@@ -123,11 +123,23 @@ fun AppSettings.posterLabel(): String = AppearanceCatalog.label(AppearanceCatalo
 
 fun AppSettings.layoutLabel(): String = if (homeLayout == "classic") "经典" else "影院模式"
 
+fun AppSettings.shellLabel(): String = if (homeShell == "cinema") "影院" else "影视仓"
+
+fun AppSettings.railLabel(): String = if (homeRail == "top") "顶部横排" else "左侧竖排"
+
+fun AppSettings.playerBarLabel(): String = when (playerBar) {
+    "slim" -> "精简"
+    "float" -> "悬浮"
+    else -> "完整"
+}
+
+fun AppSettings.diySummary(): String = "${shellLabel()} · ${posterColumns}列"
+
 fun AppSettings.motionLabel(): String = if (reduceMotion) "关闭" else "流畅"
 
-fun AppSettings.engineLabel(): String = if (playerEngine == "exo") "系统 (ExoPlayer)" else "VLC"
+fun AppSettings.engineLabel(): String = if (playerEngine == "exo") "EXO播放器" else "VLC"
 
-fun AppSettings.decoderLabel(): String = if (decoder == "software") "软件" else "硬件"
+fun AppSettings.decoderLabel(): String = if (decoder == "software") "软解" else "硬解"
 
 fun AppSettings.speedLabel(): String = when {
     defaultSpeed < 0.9f -> "0.75x"
@@ -189,6 +201,33 @@ fun AppSettings.resetSection(section: String): AppSettings {
             homeLayout = fresh.homeLayout,
             reduceMotion = fresh.reduceMotion,
             showLiveOnVod = fresh.showLiveOnVod,
+        )
+        "diy" -> copy(
+            themeMode = fresh.themeMode,
+            accent = fresh.accent,
+            backgroundType = fresh.backgroundType,
+            gradientId = fresh.gradientId,
+            backgroundImageUrl = "",
+            wallpaperId = fresh.wallpaperId,
+            solidColor = fresh.solidColor,
+            wallpaperBlur = fresh.wallpaperBlur,
+            wallpaperDim = fresh.wallpaperDim,
+            fontScale = fresh.fontScale,
+            posterSize = fresh.posterSize,
+            posterColumns = fresh.posterColumns,
+            tileAlpha = fresh.tileAlpha,
+            cornerRadius = fresh.cornerRadius,
+            showRating = fresh.showRating,
+            showYear = fresh.showYear,
+            showQuality = fresh.showQuality,
+            showDoubanBadge = fresh.showDoubanBadge,
+            showClock = fresh.showClock,
+            homeActions = emptyList(),
+            homeTabs = emptyList(),
+            homeShell = fresh.homeShell,
+            homeRail = fresh.homeRail,
+            playerBar = fresh.playerBar,
+            wallpaperPayload = "",
         )
         "play" -> copy(
             playerEngine = fresh.playerEngine,

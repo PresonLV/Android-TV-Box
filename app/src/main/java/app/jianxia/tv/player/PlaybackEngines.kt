@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -27,6 +28,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import app.jianxia.tv.R
 import app.jianxia.tv.data.net.ResilientDns
 import app.jianxia.tv.data.net.Ua
 import okhttp3.OkHttpClient
@@ -46,7 +48,7 @@ enum class EngineId {
 
 fun EngineId.other(): EngineId = if (this == EngineId.Vlc) EngineId.Exo else EngineId.Vlc
 
-fun EngineId.label(): String = if (this == EngineId.Vlc) "VLC" else "系统 (ExoPlayer)"
+fun EngineId.label(): String = if (this == EngineId.Vlc) "VLC" else "EXO播放器"
 
 fun EngineId.wire(): String = if (this == EngineId.Vlc) "vlc" else "exo"
 
@@ -124,15 +126,22 @@ class PlaybackHost(context: Context) {
     private var markBuf = 0L
     private val stall = Runnable {
         if (!eventsOpen) return@Runnable
+        if (!hasFirstFrame) {
+            fail("超过 18 秒没有画面")
+            return@Runnable
+        }
         val pos = positionMs
         val buf = bufferedMs
         val moved = pos > markPos + 500 || buf > markBuf + 256_000
-        if (moved) {
+        if (moved || (isPlaying && !isBuffering)) {
             armStall()
         } else {
             fail("缓冲超过 18 秒没有进展")
         }
     }
+
+    var surfaceKind: String = "texture"
+        private set
 
     var engine: EngineId = EngineId.Vlc
         private set
@@ -181,6 +190,10 @@ class PlaybackHost(context: Context) {
         container = target
         mounted = false
         mount()
+    }
+
+    fun setSurfaceKind(kind: String) {
+        surfaceKind = if (kind == "surface") "surface" else "texture"
     }
 
     fun setEngine(next: EngineId, useSoftware: Boolean) {
@@ -497,12 +510,12 @@ class PlaybackHost(context: Context) {
         val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         when (engine) {
             EngineId.Exo -> {
-                val view = PlayerView(appContext).apply {
-                    useController = false
-                    player = exo
-                    setShutterBackgroundColor(Color.BLACK)
-                    resizeMode = resizeMode()
-                }
+                val layout = if (surfaceKind == "surface") R.layout.player_surface else R.layout.player_texture
+                val view = LayoutInflater.from(appContext).inflate(layout, parent, false) as PlayerView
+                view.useController = false
+                view.player = exo
+                view.setShutterBackgroundColor(Color.BLACK)
+                view.resizeMode = resizeMode()
                 parent.addView(view, params)
                 playerView = view
                 vlcLayout = null

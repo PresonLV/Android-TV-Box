@@ -87,6 +87,83 @@ class SpiderTest {
             site.copy(api = "https://api.example/vod", referer = "https://site.example/"),
         )
         assertEquals("https://api.example/a.jpg@Referer=https://pic.example/", withPic.items.single().pic)
+        val zeroYear = SpiderJson.detail(
+            """{"list":[{"vod_id":3,"vod_name":"无可替代","vod_year":0,"vod_play_from":null,"vod_play_url":""}]}""",
+            site,
+            "3",
+        )
+        assertEquals("无可替代", zeroYear?.title)
+        assertNull(zeroYear?.year)
+        assertTrue(zeroYear?.lines.orEmpty().isEmpty())
+        val numeric = SpiderJson.detail(
+            "{\"list\":[{\"vod_id\":8,\"vod_name\":\"数字\",\"vod_year\":\"2026\",\"vod_play_from\":\"夸父原1\",\"vod_play_url\":\"[1.96GB] 01.mkv\$share-1#02.mkv\$share-2\"}]}",
+            site,
+            "8",
+        )
+        assertEquals("2026", numeric?.year)
+        assertEquals("share-1", numeric?.lines?.single()?.episodes?.first()?.url)
+        assertEquals("网盘", app.jianxia.core.spider.PlayText.pendingLabel("夸父原1", "share-1"))
+        assertNull(app.jianxia.core.spider.PlayText.pendingLabel("线路1", "https://cdn.example/a.m3u8"))
+        val rooted = SpiderJson.detail(
+            "{\"vod_id\":\"9\",\"vod_name\":\"根对象\",\"vod_play_from\":\"线A\$\$\$线B\",\"vod_play_url\":\"1\$http://a/1#2\$http://a/2\$\$\$正片\$http://b/x.mkv\"}",
+            site,
+            "9",
+        )
+        assertEquals(2, rooted?.lines?.size)
+        assertEquals("http://b/x.mkv", rooted?.lines?.get(1)?.episodes?.single()?.url)
+        val objects = SpiderJson.detail(
+            """{"list":[{"vod_id":"1","vod_name":"数组","vod_play_list":[{"flag":"夸父","urls":[{"name":"01.mkv","url":"fid"}]}]}]}""",
+            site,
+            "1",
+        )
+        assertEquals("fid", objects?.lines?.single()?.episodes?.single()?.url)
+        val prefixed = SpiderJson.play("""{"parse":true,"jx":false,"url":"page","playUrl":"https://jx.example/?url="}""")
+        assertEquals("https://jx.example/?url=page", prefixed.url)
+        assertEquals(1, prefixed.parse)
+        assertEquals(0, prefixed.jx)
+        val wrapped = SpiderJson.page("\"{\\\"list\\\":[{\\\"vod_id\\\":\\\"1\\\",\\\"vod_name\\\":\\\"转义\\\"}]}\"", site)
+        assertEquals("转义", wrapped.items.single().title)
+    }
+
+    @Test
+    fun proxyRewriteRangeAndCookies() {
+        val base = "http://127.0.0.1:9978/proxy"
+        val rewritten = app.jianxia.core.spider.PlayText.rewriteProxy(
+            "玩偶",
+            "http://127.0.0.1:1111/proxy?do=quark&url=abc",
+            base,
+        )
+        assertTrue(rewritten.startsWith("http://127.0.0.1:9978/proxy?site="))
+        assertTrue(rewritten.contains("do=quark"))
+        assertTrue(rewritten.contains("url=abc"))
+        val kept = app.jianxia.core.spider.PlayText.rewriteProxy("s", "https://cdn.example/a.mkv", base)
+        assertEquals("https://cdn.example/a.mkv", kept)
+        val bytes = "0123456789".toByteArray()
+        val slice = app.jianxia.core.spider.PlayText.slice(bytes, "bytes=2-5")
+        assertEquals(206, slice.code)
+        assertEquals("2345", slice.body.toString(Charsets.UTF_8))
+        assertEquals(416, app.jianxia.core.spider.PlayText.slice(bytes, "bytes=20-").code)
+        val merged = app.jianxia.core.spider.PlayText.mergeCookies(
+            """{"Cloud-drive":"http://example.test/a.txt","token":"keep"}""",
+            "qcookie",
+            "",
+            "atok",
+        )
+        assertTrue(merged.contains("\"token\":\"keep\""))
+        assertTrue(merged.contains("qcookie"))
+        assertTrue(merged.contains("atok"))
+        assertEquals("https://site.example/ext", app.jianxia.core.spider.PlayText.mergeCookies("https://site.example/ext", "q", "u", "a"))
+        val cacheDir = java.nio.file.Files.createTempDirectory("jx-cache").toFile()
+        val cache = app.jianxia.core.cache.TextCache(cacheDir)
+        cache.write("home", "cached-home")
+        val started = System.nanoTime()
+        assertEquals("cached-home", cache.read("home"))
+        val hitMs = (System.nanoTime() - started) / 1_000_000
+        val slow = System.nanoTime()
+        Thread.sleep(40)
+        val missMs = (System.nanoTime() - slow) / 1_000_000
+        assertTrue("cache hit ${hitMs}ms should beat a fresh 40ms load", hitMs < missMs)
+        cacheDir.deleteRecursively()
     }
 
     @Test
@@ -112,6 +189,12 @@ class SpiderTest {
         assertEquals(SpiderMode.JS, js.spiderMode)
         assertEquals("https://example.test/box/drpy2.min.js", js.api)
         assertEquals("https://example.test/box/rule.js", js.spiderExt)
+        val drive = TvBoxConfigParser.parse(
+            """{"sites":[{"key":"w","name":"玩偶","type":3,"api":"csp_WoGG","ext":{"Cloud-drive":"tvfan/Cloud-drive.txt","token":"t"}}]}""",
+            "http://www.example.test/tv",
+        ).sites.single()
+        assertTrue(drive.spiderExt.contains("http://www.example.test/tvfan/Cloud-drive.txt"))
+        assertTrue(drive.spiderExt.contains("\"token\":\"t\""))
         assertEquals(SiteKind.MACCMS_JSON, config.sites.first { it.key == "plain" }.kind)
         assertEquals("https://example.test/box/base.jar;md5;aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", config.spider)
     }
