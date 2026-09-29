@@ -98,6 +98,9 @@ internal fun CinemaDetail(
                                 if (!item.content.isNullOrBlank()) {
                                     Text(item.content.orEmpty().replace("\n", " "), color = Color.White.copy(alpha = 0.75f), maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                                 }
+                                if (!state.notice.isNullOrBlank()) {
+                                    Text(state.notice.orEmpty(), color = Color.White, modifier = Modifier.padding(top = 8.dp))
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 14.dp)) {
                                     TvButton(if (state.resumeMs > 10_000) "继续播放" else "播放", primary = true) { vm.play(onPlay) }
                                     TvButton(if (state.favorite) "已收藏" else "收藏", onClick = vm::toggleFavorite)
@@ -163,7 +166,10 @@ internal fun CinemaDetail(
                                     selected = state.episodeIndex,
                                     reversed = state.reversed,
                                     onToggleOrder = vm::toggleOrder,
-                                    onSelect = vm::episode,
+                                    onSelect = { index ->
+                                        vm.episode(index)
+                                        vm.play(onPlay)
+                                    },
                                 )
                             }
                         }
@@ -215,7 +221,8 @@ private fun LineChip(name: String, speed: String?, selected: Boolean, onClick: (
             Text(name, color = if (selected) palette.onAccent else palette.text, fontSize = 15.sp, maxLines = 1)
             if (!speed.isNullOrBlank()) {
                 val tone = when {
-                    speed.startsWith("不可用") -> palette.danger
+                    speed.startsWith("不可用") || speed.startsWith("未测通") -> palette.danger
+                    speed == "网盘" || speed == "本地代理" -> if (selected) palette.onAccent else palette.muted
                     selected -> palette.onAccent
                     else -> palette.ok
                 }

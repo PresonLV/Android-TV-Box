@@ -5,6 +5,8 @@ private val directMedia = Regex(
     RegexOption.IGNORE_CASE,
 )
 
+fun isLocalProxyUrl(url: String): Boolean = app.jianxia.core.spider.PlayText.isLocalProxy(url)
+
 fun isDirectMediaUrl(url: String): Boolean {
     val value = url.trim()
     if (!(value.startsWith("http://") || value.startsWith("https://"))) return false
@@ -16,7 +18,7 @@ fun isDirectMediaUrl(url: String): Boolean {
 /** parse=1 / jx=1，或看起来是网页而不是媒体文件时，需要解析或嗅探。 */
 fun needsSniff(url: String, parse: Int = 0, jx: Int = 0): Boolean {
     val value = url.trim()
-    if (isDirectMediaUrl(value)) return false
+    if (isLocalProxyUrl(value) || isDirectMediaUrl(value)) return false
     if (!(value.startsWith("http://") || value.startsWith("https://"))) return false
     if (parse == 1 || jx == 1) return true
     val path = value.lowercase().substringBefore('?').substringBefore('#')

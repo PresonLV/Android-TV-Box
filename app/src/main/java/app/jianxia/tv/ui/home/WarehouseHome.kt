@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+
 package app.jianxia.tv.ui.home
 
 import androidx.activity.compose.BackHandler
@@ -28,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.semantics.contentDescription
@@ -41,7 +44,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
@@ -67,6 +72,19 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 private const val HOME_TAB = "home"
+
+private class WarehouseHold : ViewModel() {
+    val tab = mutableStateOf(HOME_TAB)
+    val classes = mutableStateOf<List<VodClass>>(emptyList())
+    val filters = mutableStateOf<Map<String, List<FilterGroup>>>(emptyMap())
+    val chosen = mutableStateOf<Map<String, String>>(emptyMap())
+    val page = mutableIntStateOf(1)
+    val pageCount = mutableIntStateOf(1)
+    val cards = mutableStateOf<List<ShelfCard>>(emptyList())
+    val strips = mutableStateOf<List<Pair<String, List<ShelfCard>>>>(emptyList())
+    val message = mutableStateOf<String?>(null)
+    val loadedKey = mutableStateOf("")
+}
 
 private data class ShelfCard(
     val key: String,
@@ -96,18 +114,20 @@ internal fun WarehouseHome(
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val sources by app.sources.observe().collectAsStateWithLifecycle(emptyList())
     val scope = rememberCoroutineScope()
+    val hold = viewModel { WarehouseHold() }
+    var tab by hold.tab
+    var classes by hold.classes
+    var filters by hold.filters
+    var chosen by hold.chosen
+    var page by hold.page
+    var pageCount by hold.pageCount
+    var cards by hold.cards
+    var strips by hold.strips
+    var message by hold.message
+    var loadedKey by hold.loadedKey
     var sites by remember { mutableStateOf<List<VodSiteDef>>(emptyList()) }
     var picker by remember { mutableStateOf(false) }
-    var tab by remember { mutableStateOf(HOME_TAB) }
-    var classes by remember { mutableStateOf<List<VodClass>>(emptyList()) }
-    var filters by remember { mutableStateOf<Map<String, List<FilterGroup>>>(emptyMap()) }
-    var chosen by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var page by remember { mutableIntStateOf(1) }
-    var pageCount by remember { mutableIntStateOf(1) }
-    var cards by remember { mutableStateOf<List<ShelfCard>>(emptyList()) }
-    var strips by remember { mutableStateOf<List<Pair<String, List<ShelfCard>>>>(emptyList()) }
-    var loading by remember { mutableStateOf(true) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(cards.isEmpty()) }
     var loadAttempt by remember { mutableIntStateOf(0) }
     var showFilters by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf<ShelfCard?>(null) }
@@ -163,8 +183,28 @@ internal fun WarehouseHome(
             message = null
             return@LaunchedEffect
         }
-        loading = cards.isEmpty()
+        val stamp = "${current.key}|$tab|$page|$chosen|${settings.homeRecommend}|${settings.doubanEnabled}"
+        val sameScreen = loadedKey == stamp && cards.isNotEmpty()
+        if (!sameScreen) {
+            val typeForCache = if (tab == HOME_TAB) null else tab
+            val peeked = app.catalog.peekBrowse(current.key, page, typeForCache, if (tab == HOME_TAB) emptyMap() else chosen)
+            if (peeked != null && (peeked.items.isNotEmpty() || peeked.classes.isNotEmpty())) {
+                if (peeked.classes.isNotEmpty()) classes = peeked.classes
+                if (peeked.filters.isNotEmpty()) filters = peeked.filters
+                cards = peeked.items.map { it.toShelf() }
+                pageCount = peeked.pageCount.coerceAtLeast(1)
+                loading = false
+            } else if (page <= 1) {
+                cards = emptyList()
+                loading = true
+            } else {
+                loading = cards.isEmpty()
+            }
+        } else {
+            loading = false
+        }
         message = null
+        val started = android.os.SystemClock.elapsedRealtime()
         if (tab == HOME_TAB && settings.homeRecommend != "site" && settings.doubanEnabled) {
             val movies = try {
                 app.douban.browse(settings, "movie", "热门", 0)
@@ -180,15 +220,23 @@ internal fun WarehouseHome(
             } catch (_: Exception) {
                 emptyList()
             }
-            cards = (movies + shows).map { it.toShelf() }
+            val doubanCards = (movies + shows).map { it.toShelf() }
             val home = runCatching { app.catalog.browseSite(current.key, 1, null, emptyMap()) }.getOrNull()
             if (home != null) {
                 if (home.classes.isNotEmpty()) classes = home.classes
                 if (home.filters.isNotEmpty()) filters = home.filters
             }
+            cards = when {
+                doubanCards.isNotEmpty() -> doubanCards
+                home != null && home.items.isNotEmpty() -> home.items.map { it.toShelf() }
+                cards.isNotEmpty() -> cards
+                else -> emptyList()
+            }
             strips = if (settings.homeMultiRow) extraStrips(app, settings, current, classes) else emptyList()
             if (cards.isEmpty()) message = home?.message ?: "豆瓣热播暂时没有内容"
             loading = false
+            loadedKey = stamp
+            android.util.Log.i("JianXia", "browse ${current.key} home ${android.os.SystemClock.elapsedRealtime() - started}ms cached=$sameScreen")
             if (message?.contains("还在加载") == true && loadAttempt < 12) {
                 delay(5_000)
                 loadAttempt += 1
@@ -206,14 +254,19 @@ internal fun WarehouseHome(
         if (browse.classes.isNotEmpty()) classes = browse.classes
         if (browse.filters.isNotEmpty()) filters = browse.filters
         val next = browse.items.map { it.toShelf() }
-        cards = if (page <= 1) next else cards + next
-        pageCount = browse.pageCount.coerceAtLeast(1)
-        strips = if (settings.homeMultiRow && tab == HOME_TAB) extraStrips(app, settings, current, browse.classes.ifEmpty { classes }) else emptyList()
+        if (next.isNotEmpty()) {
+            cards = if (page <= 1) next else cards + next
+        }
+        if (browse.pageCount > 1 || next.isNotEmpty()) pageCount = browse.pageCount.coerceAtLeast(1)
+        strips = if (settings.homeMultiRow && tab == HOME_TAB) extraStrips(app, settings, current, browse.classes.ifEmpty { classes }) else strips
         message = when {
-            cards.isNotEmpty() -> browse.message?.takeIf { page <= 1 && browse.items.isEmpty() }
+            cards.isNotEmpty() && next.isEmpty() -> browse.message
+            cards.isNotEmpty() -> null
             else -> browse.message ?: "没有找到片源"
         }
         loading = false
+        loadedKey = stamp
+        android.util.Log.i("JianXia", "browse ${current.key} $tab ${android.os.SystemClock.elapsedRealtime() - started}ms cached=$sameScreen")
         if (message?.contains("还在加载") == true && loadAttempt < 12) {
             delay(5_000)
             loadAttempt += 1
@@ -228,14 +281,59 @@ internal fun WarehouseHome(
             page = 1
             chosen = emptyMap()
             cards = emptyList()
+            loadedKey = ""
             scope.launch { app.settings.update { it.copy(defaultSourceId = picked.key) } }
         }
         return
     }
 
+    val leftRail = settings.homeRail != "top"
+    val contentFocus = remember { FocusRequester() }
+    val railFocus = remember { FocusRequester() }
+    LaunchedEffect(focused?.key) {
+        val card = focused ?: return@LaunchedEffect
+        if (card.search) return@LaunchedEffect
+        delay(280)
+        val item = app.catalog.store.get(card.key) ?: return@LaunchedEffect
+        if (item.variants.any { it.lines.isEmpty() && it.id.isNotBlank() }) {
+            runCatching { app.catalog.hydrate(item) }
+        }
+    }
+    Row(Modifier.fillMaxSize()) {
+    if (leftRail) {
+        Column(
+            Modifier
+                .padding(start = 16.dp, top = 18.dp, end = 8.dp)
+                .focusProperties {
+                    exit = {
+                        if (it == androidx.compose.ui.focus.FocusDirection.Right) {
+                            contentFocus
+                        } else {
+                            androidx.compose.ui.focus.FocusRequester.Cancel
+                        }
+                    }
+                },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            actions.forEachIndexed { index, action ->
+                TvButton(
+                    action.title,
+                    modifier = if (index == 0) Modifier.focusRequester(railFocus) else Modifier,
+                ) { runAction(action.id, onHistory, onLive, onSearchPage, onPush, onFavorites, onSettings) }
+            }
+        }
+    }
     Column(
         Modifier
+            .weight(1f)
             .fillMaxSize()
+            .focusRequester(contentFocus)
+            .focusProperties {
+                exit = {
+                    if (leftRail && it == androidx.compose.ui.focus.FocusDirection.Left) railFocus
+                    else androidx.compose.ui.focus.FocusRequester.Default
+                }
+            }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyUp && event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_MENU && tab != HOME_TAB) {
                     showFilters = !showFilters
@@ -280,19 +378,14 @@ internal fun WarehouseHome(
                 }
             }
         }
-        Row(
-            Modifier.padding(start = 28.dp, end = 28.dp, top = 10.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            actions.forEach { action ->
-                TvButton(action.title) {
-                    when (action.id) {
-                        "history" -> onHistory()
-                        "live" -> onLive()
-                        "search" -> onSearchPage()
-                        "push" -> onPush()
-                        "favorite" -> onFavorites()
-                        "settings" -> onSettings()
+        if (!leftRail) {
+            Row(
+                Modifier.padding(start = 28.dp, end = 28.dp, top = 10.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                actions.forEach { action ->
+                    TvButton(action.title) {
+                        runAction(action.id, onHistory, onLive, onSearchPage, onPush, onFavorites, onSettings)
                     }
                 }
             }
@@ -394,6 +487,26 @@ internal fun WarehouseHome(
             }
         }
     }
+    }
+}
+
+private fun runAction(
+    id: String,
+    onHistory: () -> Unit,
+    onLive: () -> Unit,
+    onSearchPage: () -> Unit,
+    onPush: () -> Unit,
+    onFavorites: () -> Unit,
+    onSettings: () -> Unit,
+) {
+    when (id) {
+        "history" -> onHistory()
+        "live" -> onLive()
+        "search" -> onSearchPage()
+        "push" -> onPush()
+        "favorite" -> onFavorites()
+        "settings" -> onSettings()
+    }
 }
 
 @Composable
@@ -416,7 +529,7 @@ private fun ShelfPoster(
     }
     Surface(
         onClick = { if (card.search) onSearchTitle(card.title) else onOpen(card.key) },
-        modifier = modifier.onFocusChanged { if (it.isFocused && preview) onFocus(card) },
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocus(card) },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = palette.surface.copy(alpha = settings.tileAlpha.coerceIn(30, 100) / 100f),
@@ -430,8 +543,13 @@ private fun ShelfPoster(
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
     ) {
+        val posterPx = when (settings.posterColumns) {
+            6 -> 180
+            4 -> 280
+            else -> 220
+        }
         Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
-            Poster(card.image, card.title, Modifier.fillMaxSize(), fade = false)
+            Poster(card.image, card.title, Modifier.fillMaxSize(), maxWidthPx = posterPx, maxHeightPx = (posterPx * 1.45f).toInt(), fade = false)
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent, Color.Black.copy(alpha = 0.82f))),

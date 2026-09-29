@@ -17,17 +17,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.jianxia.core.model.Episode
 import app.jianxia.core.model.MergedVod
 import app.jianxia.core.model.PlayLine
 import app.jianxia.core.model.SiteKind
 import app.jianxia.core.model.VodItem
-import app.jianxia.core.model.Episode
 import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.ui.Keycap
 import app.jianxia.tv.ui.LocalApp
 import app.jianxia.tv.ui.LocalPalette
 import app.jianxia.tv.ui.PhoneQrCard
 import app.jianxia.tv.ui.ScreenPadding
+import app.jianxia.tv.ui.SelectChip
 import app.jianxia.tv.ui.TvButton
 
 internal fun directPlay(url: String): PlayRequest {
@@ -54,26 +55,68 @@ fun PushScreen(onBack: () -> Unit, onPlay: () -> Unit) {
     val app = LocalApp.current
     val palette = LocalPalette.current
     var url by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("把 m3u8 或 mp4 地址推到电视上播放。配置仍建议用右侧二维码。") }
+    var buffer by remember { mutableStateOf("") }
+    var mode by remember { mutableStateOf("pinyin") }
+    var note by remember { mutableStateOf("遥控器可以输入拼音。手机扫右侧二维码，可以直接推送播放地址或搜索片名。") }
+    val candidates = if (mode == "pinyin") app.pinyin.candidates(buffer) else emptyList()
     BackHandler(onBack = onBack)
     Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
         Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
             Text("推送", color = palette.text, fontSize = 28.sp)
             Text(note, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
-            Text(url.ifBlank { "播放地址" }, color = if (url.isBlank()) palette.muted else palette.accent, fontSize = 18.sp, modifier = Modifier.padding(bottom = 10.dp))
+            Text(url.ifBlank { "播放地址" }, color = if (url.isBlank()) palette.muted else palette.accent, fontSize = 18.sp)
+            Text(if (buffer.isBlank()) "拼音" else buffer, color = palette.accent, fontSize = 16.sp, modifier = Modifier.padding(bottom = 8.dp))
+            if (candidates.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                    candidates.forEach { char ->
+                        SelectChip(char, false) {
+                            url += char
+                            buffer = ""
+                        }
+                    }
+                }
+            }
             listOf("http://", "https://", ".m3u8", ".mp4").chunked(4).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
                     row.forEach { token -> TvButton(token) { url += token } }
                 }
             }
-            "abcdefghijklmnopqrstuvwxyz".chunked(7).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-                    row.forEach { char -> Keycap(char.toString()) { url += char } }
+            if (mode == "symbol") {
+                listOf(".:/?=", "&-_#@", "%+~,").forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                        row.forEach { char -> Keycap(char.toString()) { url += char } }
+                    }
+                }
+            } else {
+                "abcdefghijklmnopqrstuvwxyz".chunked(7).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                        row.forEach { char ->
+                            Keycap(char.toString()) {
+                                if (mode == "pinyin") buffer += char else url += char
+                            }
+                        }
+                    }
                 }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                "1234567890".forEach { digit -> Keycap(digit.toString()) { url += digit } }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                TvButton("退格") { url = url.dropLast(1) }
-                TvButton("清空") { url = "" }
+                TvButton(when (mode) { "pinyin" -> "拼音"; "symbol" -> "符号"; else -> "ABC" }) {
+                    mode = when (mode) {
+                        "pinyin" -> "abc"
+                        "abc" -> "symbol"
+                        else -> "pinyin"
+                    }
+                    buffer = ""
+                }
+                TvButton("退格") {
+                    if (buffer.isNotEmpty()) buffer = buffer.dropLast(1) else url = url.dropLast(1)
+                }
+                TvButton("清空") {
+                    url = ""
+                    buffer = ""
+                }
                 TvButton("播放", primary = true) {
                     val target = url.trim()
                     if (!target.startsWith("http://") && !target.startsWith("https://")) {

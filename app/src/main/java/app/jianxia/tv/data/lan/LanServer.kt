@@ -15,6 +15,8 @@ import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
 import app.jianxia.tv.data.repo.SubtitleStore
+import app.jianxia.tv.PlaybackSession
+import app.jianxia.tv.ui.push.directPlay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -53,6 +55,7 @@ class LanServer(
     private val backup: BackupRepository,
     private val settings: SettingsRepository,
     private val subtitles: SubtitleStore,
+    private val session: PlaybackSession,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val running = AtomicBoolean(false)
@@ -185,6 +188,10 @@ class LanServer(
                 when {
                     request.method == "GET" && route == "/api/sources" -> sourcesJson()
                     request.method == "GET" && route == "/api/appearance" -> appearanceJson()
+                    request.method == "GET" && route == "/api/drive" -> driveJson()
+                    request.method == "POST" && route == "/api/drive" -> saveDrive(body)
+                    request.method == "POST" && route == "/api/push" -> pushPlay(body)
+                    request.method == "POST" && route == "/api/search" -> pushSearch(body)
                     request.method == "POST" && route == "/api/appearance" -> {
                         val obj = parseObject(body)
                         when (obj.str("reset")) {
@@ -362,6 +369,52 @@ class LanServer(
         }.toString()
     }
 
+    private fun driveJson(message: String = "ok"): String {
+        val current = settings.state.value
+        return buildJsonObject {
+            put("ok", true)
+            put("message", message)
+            put("quark", current.quarkCookie.isNotBlank())
+            put("uc", current.ucCookie.isNotBlank())
+            put("ali", current.aliToken.isNotBlank())
+        }.toString()
+    }
+
+    private suspend fun saveDrive(body: String): String {
+        val obj = parseObject(body)
+        settings.update { current ->
+            current.copy(
+                quarkCookie = obj.raw("quark") ?: current.quarkCookie,
+                ucCookie = obj.raw("uc") ?: current.ucCookie,
+                aliToken = obj.raw("ali") ?: current.aliToken,
+            )
+        }
+        return driveJson("已保存。回到电视重新打开影片后再播放。")
+    }
+
+    private fun pushPlay(body: String): String {
+        val url = parseObject(body).raw("url").orEmpty().trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            throw IllegalArgumentException("地址需要以 http:// 或 https:// 开头")
+        }
+        session.request = directPlay(url)
+        session.pushPlay(url)
+        return buildJsonObject {
+            put("ok", true)
+            put("message", "已推送到电视播放")
+        }.toString()
+    }
+
+    private fun pushSearch(body: String): String {
+        val query = (parseObject(body).raw("query") ?: parseObject(body).raw("text")).orEmpty().trim()
+        if (query.isBlank()) throw IllegalArgumentException("请输入要搜索的片名")
+        session.pushSearch(query)
+        return buildJsonObject {
+            put("ok", true)
+            put("message", "已在电视上搜索")
+        }.toString()
+    }
+
     private fun appearanceJson(message: String = "ok"): String {
         val current = settings.state.value
         return buildJsonObject {
@@ -387,6 +440,7 @@ class LanServer(
                 put("showDoubanBadge", current.showDoubanBadge)
                 put("showClock", current.showClock)
                 put("homeShell", current.homeShell)
+                put("homeRail", current.homeRail)
                 put("playerBar", current.playerBar)
                 put("homeActions", toggleArray(UiDiy.actionsOf(current)))
                 put("homeTabs", toggleArray(current.homeTabs.ifEmpty { listOf(ShelfToggle("home", "主页")) }))
@@ -398,6 +452,7 @@ class LanServer(
             put("solids", catalog(AppearanceCatalog.solids))
             put("posters", catalog(AppearanceCatalog.posters))
             put("shells", catalog(listOf(AppearanceItem("warehouse", "影视仓"), AppearanceItem("cinema", "影院"))))
+            put("rails", catalog(listOf(AppearanceItem("left", "左侧竖排"), AppearanceItem("top", "顶部横排"))))
             put("bars", catalog(listOf(AppearanceItem("full", "完整"), AppearanceItem("slim", "精简"), AppearanceItem("float", "悬浮"))))
             put("columns", catalog(listOf(4, 5, 6).map { AppearanceItem(it.toString(), "$it 列") }))
         }.toString()
@@ -434,6 +489,7 @@ class LanServer(
         showDoubanBadge = obj.bool("showDoubanBadge") ?: current.showDoubanBadge,
         showClock = obj.bool("showClock") ?: current.showClock,
         homeShell = obj.str("homeShell") ?: current.homeShell,
+        homeRail = obj.str("homeRail") ?: current.homeRail,
         playerBar = obj.str("playerBar") ?: current.playerBar,
         homeActions = obj.toggles("homeActions") ?: current.homeActions,
         homeTabs = obj.toggles("homeTabs") ?: current.homeTabs,
@@ -641,6 +697,20 @@ class LanServer(
             .swatches i{display:block;width:56px;height:36px}
             </style></head><body><main>
             <h1>个人影院</h1>
+            <h2>推送到电视</h2>
+            <p>播放地址会直接在电视上打开。搜索词会打开电视的搜索页。网盘 Cookie 只保存在这台电视上，不会上传到别处。</p>
+            <label>播放地址<input id="pushUrl" placeholder="https:// 视频地址，m3u8 或 mp4"></label>
+            <button onclick="pushPlay()">推送到电视播放</button>
+            <label>搜索片名<input id="searchWord" placeholder="输入片名"></label>
+            <button onclick="pushSearch()">搜索</button>
+            <p id="pushMsg"></p>
+            <h2>网盘 Cookie</h2>
+            <p>夸克：电脑浏览器登录 pan.quark.cn，按 F12，在网络里点任意请求，复制请求头 Cookie。UC 打开 drive.uc.cn 同样复制。阿里云盘粘贴自己的 refresh_token。</p>
+            <label>夸克 Cookie<textarea id="quarkCookie" rows="3" placeholder="粘贴夸克 Cookie"></textarea></label>
+            <label>UC Cookie<textarea id="ucCookie" rows="3" placeholder="粘贴 UC Cookie"></textarea></label>
+            <label>阿里 token<textarea id="aliToken" rows="2" placeholder="refresh_token"></textarea></label>
+            <button onclick="saveDrive()">保存到电视</button>
+            <p id="driveMsg"></p>
             <p>在这里粘贴接口地址。点播片源需要自己添加。可以一次粘贴很多网址：每行一个，或和说明文字混在一起。重复的会标成已存在。</p>
             <label>名称（可选，只在添加一个地址时使用）<input id="name" placeholder="例如：家里的配置"></label>
             <label>地址<textarea id="url" rows="5" placeholder="https:// 可以一次粘贴多个"></textarea></label>
@@ -669,6 +739,7 @@ class LanServer(
             <h2>界面 DIY</h2>
             <p>改完会立刻写到电视上。壁纸可以选内置、填网址，或从手机上传一张图。</p>
             <label>首页布局<select id="homeShell"></select></label>
+            <label>功能键位置<select id="homeRail"></select></label>
             <label>播放条<select id="playerBar"></select></label>
             <label>海报列数<select id="posterColumns"></select></label>
             <label>海报大小<select id="posterSize"></select></label>
@@ -716,6 +787,30 @@ class LanServer(
               <button class="ghost" onclick="exportBackup()">下载备份</button>
             </div>
             <script>
+            async function pushPlay(){
+              const url = document.getElementById('pushUrl').value.trim();
+              try {
+                const data = await api('/api/push', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
+                document.getElementById('pushMsg').textContent = data.message || '已推送';
+              } catch (e) { document.getElementById('pushMsg').textContent = friendly(e); }
+            }
+            async function pushSearch(){
+              const query = document.getElementById('searchWord').value.trim();
+              try {
+                const data = await api('/api/search', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query:query})});
+                document.getElementById('pushMsg').textContent = data.message || '已搜索';
+              } catch (e) { document.getElementById('pushMsg').textContent = friendly(e); }
+            }
+            async function saveDrive(){
+              try {
+                const data = await api('/api/drive', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+                  quark: document.getElementById('quarkCookie').value,
+                  uc: document.getElementById('ucCookie').value,
+                  ali: document.getElementById('aliToken').value
+                })});
+                document.getElementById('driveMsg').textContent = data.message || '已保存';
+              } catch (e) { document.getElementById('driveMsg').textContent = friendly(e); }
+            }
             async function loadExtras(){
               try {
                 const data = await api('/api/extras');
@@ -927,6 +1022,7 @@ class LanServer(
             function loadDiy(data){
               const s = (data && data.settings) || {};
               fillSelect('homeShell', data.shells, s.homeShell || 'warehouse');
+              fillSelect('homeRail', data.rails, s.homeRail || 'left');
               fillSelect('playerBar', data.bars, s.playerBar || 'full');
               fillSelect('posterColumns', data.columns, String(s.posterColumns || 5));
               fillSelect('posterSize', data.posters, s.posterSize || 'medium');
@@ -968,6 +1064,7 @@ class LanServer(
             function diyPayload(){
               return {
                 homeShell: document.getElementById('homeShell').value,
+                homeRail: document.getElementById('homeRail').value,
                 playerBar: document.getElementById('playerBar').value,
                 posterColumns: Number(document.getElementById('posterColumns').value),
                 posterSize: document.getElementById('posterSize').value,
@@ -1013,7 +1110,7 @@ class LanServer(
                 await loadLook();
               } catch (e) { document.getElementById('diyMsg').textContent = friendly(e); }
             }
-            ['homeShell','playerBar','posterColumns','posterSize','diyFont','showClock','showRating','showYear','showQuality','showDouban'].forEach(function(id){
+            ['homeShell','homeRail','playerBar','posterColumns','posterSize','diyFont','showClock','showRating','showYear','showQuality','showDouban'].forEach(function(id){
               const node = document.getElementById(id);
               if (node) node.addEventListener('change', saveDiy);
             });

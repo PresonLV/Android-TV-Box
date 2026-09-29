@@ -168,6 +168,13 @@ internal fun SettingsMenu(versionName: String, onOpen: (String) -> Unit) {
             scope.launch { app.settings.update { it.copy(windowPreview = !it.windowPreview) } }
         },
         Tile("界面DIY", settings.diySummary()) { onOpen("diy") },
+        Tile(
+            "网盘 Cookie",
+            when {
+                settings.quarkCookie.isNotBlank() || settings.ucCookie.isNotBlank() || settings.aliToken.isNotBlank() -> "已填写"
+                else -> "夸克 / UC / 阿里"
+            },
+        ) { onOpen("cookies") },
         Tile("缓存", "爬虫与海报") { note = "海报和爬虫缓存在本机。用旁边的「清空缓存」删掉后，下次进入会重新下载。" },
         Tile("清空缓存", "立即") {
             scope.launch {

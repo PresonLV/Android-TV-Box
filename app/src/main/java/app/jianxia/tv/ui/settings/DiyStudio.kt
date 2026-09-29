@@ -34,6 +34,7 @@ import app.jianxia.core.model.ShelfToggle
 import app.jianxia.core.model.UiDiy
 import app.jianxia.core.model.playerBarLabel
 import app.jianxia.core.model.resetSection
+import app.jianxia.core.model.railLabel
 import app.jianxia.core.model.shellLabel
 import app.jianxia.core.model.shifted
 import app.jianxia.core.model.wallpaperLabel
@@ -180,6 +181,15 @@ internal fun DiyStudio(onImageUrl: () -> Unit) {
                     save { it.copy(homeShell = "cinema") }
                 }
             }
+            Text("功能键位置", color = palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceCard("左侧竖排", settings.homeRail != "top", Modifier.weight(1f)) {
+                    save { it.copy(homeRail = "left") }
+                }
+                ChoiceCard("顶部横排", settings.homeRail == "top", Modifier.weight(1f)) {
+                    save { it.copy(homeRail = "top") }
+                }
+            }
             Text("播放条", color = palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("full" to "完整", "slim" to "精简", "float" to "悬浮").forEach { (id, label) ->
@@ -219,7 +229,7 @@ internal fun DiyStudio(onImageUrl: () -> Unit) {
             Text("预览", color = palette.muted, modifier = Modifier.padding(bottom = 8.dp))
             DiyPreview(draft)
             Text(
-                "${draft.shellLabel()} · ${draft.playerBarLabel()} · ${draft.wallpaperLabel()}",
+                "${draft.shellLabel()} · ${draft.railLabel()} · ${draft.playerBarLabel()} · ${draft.wallpaperLabel()}",
                 color = palette.muted,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),

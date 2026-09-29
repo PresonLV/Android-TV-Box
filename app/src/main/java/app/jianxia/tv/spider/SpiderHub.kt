@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -57,6 +58,10 @@ class SpiderHub(
     }
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
+    fun dropSessions() {
+        jars.dropSessions()
+    }
+
     fun wipe() {
         jars.clear()
         scripts.values.forEach { runCatching { it.close() } }
@@ -78,8 +83,13 @@ class SpiderHub(
             sites.clear()
             proxy.stop()
         } else {
-            proxy.start()
+            publishProxy()
         }
+    }
+
+    private fun publishProxy() {
+        proxy.start()
+        jars.bindProxy(proxy.base())
     }
 
     fun home(def: VodSiteDef): VodPage = call(def) {
@@ -100,6 +110,7 @@ class SpiderHub(
     }
 
     fun play(def: VodSiteDef, flag: String, id: String): SpiderPlay = call(def) {
+        publishProxy()
         val raw = if (engine(def) == Engine.JAR) jars.play(def, flag, id) else script(def).play(def, flag, id, timeoutMs())
         raw.copy(url = proxy.expose(def.key, raw.url))
     }
@@ -127,26 +138,30 @@ class SpiderHub(
             val array = runCatching { json.parseToJsonElement(value).jsonArray }.getOrNull()
             if (array != null) return fromJson(array)
         }
-        val array = value as? Array<*> ?: return ProxyPayload(502, "text/plain", "empty".toByteArray())
+        if (value is String && value.trim().startsWith("{")) {
+            val obj = runCatching { json.parseToJsonElement(value).jsonObject }.getOrNull()
+            if (obj != null) {
+                val nested = obj["url"]?.let { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
+                if (nested.isNotBlank()) return ProxyPayload(302, "text/plain", ByteArray(0), extraHeaders = mapOf("Location" to nested))
+            }
+        }
+        val array: List<Any?> = when (value) {
+            is Array<*> -> value.toList()
+            is List<*> -> value
+            else -> return ProxyPayload(502, "text/plain", "empty".toByteArray())
+        }
         val code = (array.getOrNull(0) as? Number)?.toInt() ?: 200
         val mime = array.getOrNull(1)?.toString() ?: "application/octet-stream"
         val body = array.getOrNull(2)
-        val bytes = when (body) {
-            is ByteArray -> body
-            is String -> body.toByteArray()
-            is java.io.InputStream -> body.use { stream ->
-                val buffer = ByteArray(8_000_000)
-                var size = 0
-                while (size < buffer.size) {
-                    val read = stream.read(buffer, size, buffer.size - size)
-                    if (read < 0) break
-                    size += read
-                }
-                buffer.copyOf(size)
-            }
-            else -> body?.toString()?.toByteArray() ?: ByteArray(0)
+        val headers = (array.getOrNull(3) as? Map<*, *>)?.entries
+            ?.associate { it.key.toString() to it.value.toString() }
+            .orEmpty()
+        return when (body) {
+            is ByteArray -> ProxyPayload(code, mime, body, extraHeaders = headers)
+            is String -> ProxyPayload(code, mime, body.toByteArray(), extraHeaders = headers)
+            is java.io.InputStream -> ProxyPayload(code, mime, stream = body, extraHeaders = headers)
+            else -> ProxyPayload(code, mime, body?.toString()?.toByteArray() ?: ByteArray(0), extraHeaders = headers)
         }
-        return ProxyPayload(code, mime, bytes)
     }
 
     private fun fromJson(array: JsonArray): ProxyPayload {

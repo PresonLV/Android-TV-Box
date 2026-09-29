@@ -5,6 +5,7 @@ import app.jianxia.core.parser.ConfigDecoder
 import app.jianxia.core.parser.isDirectMediaUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -23,8 +24,10 @@ data class ProbeMeasure(
 
 class NetClient {
     val http: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(20, TimeUnit.SECONDS)
+        .connectionPool(ConnectionPool(8, 2, TimeUnit.MINUTES))
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)

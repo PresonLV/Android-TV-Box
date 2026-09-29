@@ -148,8 +148,9 @@ fun SearchScreen(onOpen: (String) -> Unit) {
     val settings by app.settings.state.collectAsStateWithLifecycle()
     val vm: SearchViewModel = appViewModel { SearchViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-    val pending = app.session.pendingSearch
-    LaunchedEffect(pending) {
+    val tick by app.session.tick.collectAsStateWithLifecycle()
+    LaunchedEffect(tick) {
+        val pending = app.session.pendingSearch
         if (!pending.isNullOrBlank()) {
             app.session.pendingSearch = null
             vm.submit(pending)
@@ -176,8 +177,11 @@ fun SearchScreen(onOpen: (String) -> Unit) {
                     row.forEach { letter -> Keycap(letter.toString()) { vm.typeLetter(letter.toString()) } }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
                 "1234567890".forEach { digit -> Keycap(digit.toString()) { vm.typeQuery(digit.toString()) } }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                listOf(".", ":", "/", "-", "_").forEach { symbol -> Keycap(symbol) { vm.typeQuery(symbol) } }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TvButton(if (state.pinyin) "拼音" else "ABC", onClick = vm::toggleMode)

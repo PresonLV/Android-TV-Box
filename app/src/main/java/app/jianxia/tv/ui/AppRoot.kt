@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import app.jianxia.tv.RemoteCommand
 import app.jianxia.tv.ui.push.directPlay
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -38,6 +39,12 @@ fun AppRoot() {
         if (url.startsWith("http://") || url.startsWith("https://")) {
             app.session.request = directPlay(url)
             nav.navigate("player")
+        }
+        app.session.remote.collect { command ->
+            when (command) {
+                is RemoteCommand.Play -> nav.navigate("player") { launchSingleTop = true }
+                is RemoteCommand.Search -> nav.navigate("search") { launchSingleTop = true }
+            }
         }
     }
     val entry by nav.currentBackStackEntryAsState()

@@ -26,6 +26,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import app.jianxia.core.douban.DoubanComment
 import app.jianxia.core.model.MergedVod
+import app.jianxia.core.spider.PlayText
+import app.jianxia.core.spider.SpiderFault
 import app.jianxia.tv.AppContainer
 import app.jianxia.tv.PlayRequest
 import app.jianxia.tv.ui.douban.DoubanComments
@@ -65,6 +67,7 @@ data class DetailState(
     val comments: List<DoubanComment> = emptyList(),
     val commentsMore: Boolean = false,
     val reversed: Boolean = false,
+    val notice: String? = null,
 )
 
 class DetailViewModel(private val app: AppContainer) : ViewModel() {
@@ -83,10 +86,13 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
                 _state.value = DetailState(loading = false, error = "找不到这部片子，请从首页或搜索重新进入。")
                 return@launch
             }
-            val full = runCatching { app.catalog.hydrate(cached) }.getOrDefault(cached)
+            val hydrated = runCatching { app.catalog.hydrate(cached) }
+            val full = hydrated.getOrDefault(cached)
             val history = app.library.historyOf(full.key)
             val choice = app.library.lineChoice(full.key)
             val located = locate(full, choice)
+            val empty = full.variants.all { it.lines.isEmpty() }
+            val fault = hydrated.exceptionOrNull()?.let { SpiderFault.explain(it) }
             _state.value = DetailState(
                 loading = false,
                 item = full,
@@ -96,6 +102,11 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
                 favorite = app.library.isFavorite(full.key),
                 resumeMs = history?.positionMs ?: 0,
                 historyEpisode = history?.episodeIndex ?: -1,
+                notice = when {
+                    !empty -> null
+                    !fault.isNullOrBlank() -> "详情没有解析出线路：$fault"
+                    else -> "这个来源没有返回播放地址。网盘线路需要在设置里填写 Cookie 后再试。"
+                },
             )
             loadDouban(full.title, full.year)
         }
@@ -156,13 +167,27 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
     fun play(onPlay: () -> Unit) {
         val state = _state.value
         val item = state.item ?: return
-        val lineId = lineId(item, state.sourceIndex, state.lineIndex)
+        var sourceIndex = state.sourceIndex
+        val current = item.variants.getOrNull(sourceIndex)
+        if (current == null || current.lines.isEmpty()) {
+            val next = item.variants.indexOfFirst { it.lines.isNotEmpty() }
+            if (next < 0) {
+                _state.update { it.copy(notice = "没有可播放的线路。详情没有返回播放地址。") }
+                return
+            }
+            sourceIndex = next
+            _state.update { it.copy(sourceIndex = next, lineIndex = 0, episodeIndex = 0, lineTouched = true, notice = "这个来源没有线路，已换到「${item.variants[next].sourceName}」") }
+        }
+        val playing = _state.value
+        val lineName = item.variants.getOrNull(sourceIndex)?.lines?.getOrNull(playing.lineIndex)?.name ?: "当前线路"
+        val lineId = lineId(item, sourceIndex, playing.lineIndex)
         app.session.request = PlayRequest(
             item = item,
-            episodeIndex = state.episodeIndex,
-            resumeMs = if (state.episodeIndex == state.historyEpisode) state.resumeMs else 0,
-            preferredLineId = if (state.lineTouched) lineId else null,
+            episodeIndex = playing.episodeIndex,
+            resumeMs = if (playing.episodeIndex == playing.historyEpisode) playing.resumeMs else 0,
+            preferredLineId = if (playing.lineTouched || sourceIndex != state.sourceIndex) lineId else null,
         )
+        _state.update { it.copy(notice = "正在解析「$lineName」") }
         onPlay()
     }
 
@@ -178,12 +203,13 @@ class DetailViewModel(private val app: AppContainer) : ViewModel() {
                 if (!isActive) return@launch
                 val id = "${variant.sourceKey}::${line.name}"
                 val url = line.episodes.firstOrNull()?.url.orEmpty()
-                val label = if (!url.startsWith("http")) {
-                    "不可用"
+                val pending = PlayText.pendingLabel(line.name, url)
+                val label = if (pending != null) {
+                    pending
                 } else {
                     val measure = withContext(Dispatchers.IO) { runCatching { app.http.probe(url) }.getOrNull() }
                     when {
-                        measure == null || !measure.ok -> "不可用"
+                        measure == null || !measure.ok -> "未测通"
                         measure.resolutionHeight != null -> "${measure.connectMs + measure.firstByteMs} 毫秒 · ${measure.resolutionHeight}p"
                         else -> "${measure.connectMs + measure.firstByteMs} 毫秒"
                     }

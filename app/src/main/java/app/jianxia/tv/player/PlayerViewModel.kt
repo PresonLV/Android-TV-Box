@@ -17,6 +17,8 @@ import app.jianxia.core.model.ParseDef
 import app.jianxia.core.model.SiteKind
 import app.jianxia.core.parser.extractMediaUrl
 import app.jianxia.core.parser.isDirectMediaUrl
+import app.jianxia.core.spider.PlayText
+import app.jianxia.core.spider.SpiderFault
 import app.jianxia.core.parser.mediaMime
 import app.jianxia.core.parser.needsSniff
 import app.jianxia.core.parser.urlEncode
@@ -551,12 +553,19 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
         current = candidate
         introApplied = false
         viewModelScope.launch {
+            _ui.update { it.copy(buffering = true, error = null, hint = "正在解析「${candidate.lineName}」", playing = false) }
             val media = try {
                 withTimeout(18_000) { resolve(candidate) }
             } catch (error: Throwable) {
                 if (error is CancellationException && error !is TimeoutCancellationException) throw error
                 if (token != playToken) return@launch
-                val reason = if (error is TimeoutCancellationException) "超过 18 秒没有画面" else UserFacingError.message(error)
+                val reason = when {
+                    error is TimeoutCancellationException -> "超过 18 秒没有画面"
+                    else -> {
+                        val friendly = UserFacingError.message(error)
+                        if (friendly == UserFacingError.RETRY) SpiderFault.explain(error) else friendly
+                    }
+                }
                 failover(reason.ifBlank { "没有找到片源" })
                 return@launch
             }
@@ -654,9 +663,17 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
     private suspend fun probeAll(list: List<Candidate>): List<LineProbe> = coroutineScope {
         list.map { candidate ->
             async(Dispatchers.IO) {
-                val url = runCatching { resolve(candidate).url }.getOrDefault(candidate.url)
-                val measure = app.http.probe(url)
-                LineProbe(candidate.id, measure.connectMs, measure.firstByteMs, measure.resolutionHeight, measure.ok)
+                if (PlayText.pendingLabel(candidate.lineName, candidate.url) != null) {
+                    LineProbe(candidate.id, 0, 0, null, true)
+                } else {
+                    val url = runCatching { resolve(candidate).url }.getOrDefault(candidate.url)
+                    if (PlayText.pendingLabel(candidate.lineName, url) != null || PlayText.isLocalProxy(url)) {
+                        LineProbe(candidate.id, 0, 0, null, true)
+                    } else {
+                        val measure = app.http.probe(url)
+                        LineProbe(candidate.id, measure.connectMs, measure.firstByteMs, measure.resolutionHeight, measure.ok)
+                    }
+                }
             }
         }.awaitAll()
     }
@@ -776,9 +793,12 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
                 selectedLineId = selected?.id.orEmpty(),
                 lines = list.map { candidate ->
                     val probe = probes[candidate.id]
+                    val pending = PlayText.pendingLabel(candidate.lineName, candidate.url)
                     val detail = when {
+                        pending != null && (probe == null || (probe.connectMs == 0L && probe.firstByteMs == 0L)) -> pending
                         probe == null -> null
                         !probe.ok -> "不可用"
+                        probe.connectMs == 0L && probe.firstByteMs == 0L && pending != null -> pending
                         else -> buildString {
                             append("${probe.connectMs + probe.firstByteMs} 毫秒")
                             probe.resolutionHeight?.let { height -> append(" · ${height}p") }

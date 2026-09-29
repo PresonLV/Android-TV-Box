@@ -17,6 +17,7 @@ class UiDiyTest {
     fun defaultsStayWarehouseAndKeepEveryBadge() {
         val fresh = AppSettings().sanitized()
         assertEquals("warehouse", fresh.homeShell)
+        assertEquals("left", fresh.homeRail)
         assertEquals(5, fresh.posterColumns)
         assertEquals(72, fresh.tileAlpha)
         assertEquals(12, fresh.cornerRadius)
@@ -117,6 +118,7 @@ class UiDiyTest {
         assertTrue(legacy.settings.showClock)
         val reset = custom.resetSection("diy").sanitized()
         assertEquals("warehouse", reset.homeShell)
+        assertEquals("left", reset.homeRail)
         assertEquals("full", reset.playerBar)
         assertEquals(5, reset.posterColumns)
         assertTrue(reset.showClock && reset.showRating && reset.showDoubanBadge)

@@ -67,6 +67,7 @@ fun SettingsScreen(start: String = "root", openCreate: Boolean = false) {
         "wallpaper" -> WallpaperStudio { page = "imageUrl" }
         "imageUrl" -> ImageUrlPage { page = "wallpaper" }
         "diy" -> DiyStudio { page = "diyImage" }
+        "cookies" -> CookiePage()
         "diyImage" -> ImageUrlPage { page = "diy" }
         "font" -> ChoicePage(
             title = "文字大小",
@@ -121,6 +122,7 @@ private fun parentPage(page: String): String = when (page) {
     "theme", "wallpaper", "font" -> "look"
     "imageUrl" -> "wallpaper"
     "diyImage" -> "diy"
+    "cookies" -> "root"
     "engine", "decoder", "speed", "aspect", "startup" -> "play"
     "sources", "source", "autoline", "timeout" -> "lines"
     else -> "root"
@@ -579,6 +581,57 @@ private fun AboutPage() {
             TvButton("打开 iptv-org") { licenseHint = openLicense(context, "https://github.com/iptv-org/iptv") }
             TvButton("打开 MoonTVPlus") { licenseHint = openLicense(context, "https://github.com/mtvpls/MoonTVPlus") }
         }
+    }
+}
+
+@Composable
+private fun CookiePage() {
+    val app = LocalApp.current
+    val palette = LocalPalette.current
+    val settings by app.settings.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var note by remember { mutableStateOf("网盘线路要登录信息才能解析。用手机扫右侧二维码粘贴，或在电视上从剪贴板写入。个人影院不内置任何账号。") }
+    fun save(block: (app.jianxia.core.model.AppSettings) -> app.jianxia.core.model.AppSettings, done: String) {
+        scope.launch {
+            app.settings.update(block)
+            note = done
+        }
+    }
+    Row(Modifier.fillMaxSize().padding(ScreenPadding)) {
+        Column(Modifier.weight(1.2f).verticalScroll(rememberScrollState())) {
+            Text("网盘 Cookie", color = palette.text, fontSize = 26.sp)
+            Text(note, color = palette.muted, modifier = Modifier.padding(top = 8.dp, bottom = 12.dp))
+            Text(if (settings.quarkCookie.isBlank()) "夸克：未填写" else "夸克：已保存 ${settings.quarkCookie.length} 个字符", color = palette.text)
+            Text(if (settings.ucCookie.isBlank()) "UC：未填写" else "UC：已保存 ${settings.ucCookie.length} 个字符", color = palette.text, modifier = Modifier.padding(top = 6.dp))
+            Text(if (settings.aliToken.isBlank()) "阿里 token：未填写" else "阿里 token：已保存 ${settings.aliToken.length} 个字符", color = palette.text, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+            Text("夸克：电脑浏览器登录 pan.quark.cn，按 F12 打开网络，刷新后点任意请求，复制请求头里的整段 Cookie。", color = palette.muted, modifier = Modifier.padding(bottom = 6.dp))
+            Text("UC：同样方式打开 drive.uc.cn，复制 Cookie。", color = palette.muted, modifier = Modifier.padding(bottom = 6.dp))
+            Text("阿里云盘：复制自己的 refresh_token。只粘贴 token 本身，不要带 Bearer。", color = palette.muted, modifier = Modifier.padding(bottom = 12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                TvButton("剪贴板写入夸克") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(quarkCookie = text) }, "夸克 Cookie 已保存。重新打开影片后再播放。")
+                }
+                TvButton("剪贴板写入 UC") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(ucCookie = text) }, "UC Cookie 已保存。重新打开影片后再播放。")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TvButton("剪贴板写入阿里") {
+                    val text = readClipboard(context)?.trim().orEmpty()
+                    if (text.length < 8) note = "剪贴板是空的，或内容太短。"
+                    else save({ it.copy(aliToken = text) }, "阿里 token 已保存。重新打开影片后再播放。")
+                }
+                TvButton("清空") {
+                    save({ it.copy(quarkCookie = "", ucCookie = "", aliToken = "") }, "已清空网盘登录信息。")
+                }
+            }
+        }
+        PhoneQrCard(modifier = Modifier.padding(start = 24.dp))
     }
 }
 

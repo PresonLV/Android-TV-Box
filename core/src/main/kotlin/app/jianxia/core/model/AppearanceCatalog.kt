@@ -125,6 +125,8 @@ fun AppSettings.layoutLabel(): String = if (homeLayout == "classic") "经典" el
 
 fun AppSettings.shellLabel(): String = if (homeShell == "cinema") "影院" else "影视仓"
 
+fun AppSettings.railLabel(): String = if (homeRail == "top") "顶部横排" else "左侧竖排"
+
 fun AppSettings.playerBarLabel(): String = when (playerBar) {
     "slim" -> "精简"
     "float" -> "悬浮"
@@ -223,6 +225,7 @@ fun AppSettings.resetSection(section: String): AppSettings {
             homeActions = emptyList(),
             homeTabs = emptyList(),
             homeShell = fresh.homeShell,
+            homeRail = fresh.homeRail,
             playerBar = fresh.playerBar,
             wallpaperPayload = "",
         )

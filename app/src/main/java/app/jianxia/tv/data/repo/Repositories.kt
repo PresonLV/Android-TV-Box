@@ -1,6 +1,8 @@
 package app.jianxia.tv.data.repo
 
 import android.content.Context
+import app.jianxia.core.cache.BrowseSnap
+import app.jianxia.core.cache.TextCache
 import app.jianxia.core.UserFacingError
 import app.jianxia.core.aggregate.ParallelAggregator
 import app.jianxia.core.backup.BackupCodec
@@ -58,6 +60,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
@@ -496,10 +499,19 @@ class CatalogRepository(
     val store: CatalogStore,
     private val spiderEnabled: () -> Boolean = { false },
     private val spiders: app.jianxia.tv.spider.SpiderHub? = null,
+    browseDir: File? = null,
 ) {
     private val registry = CatalogRegistry(http)
     private var cached: Pair<String, ExpandedSources>? = null
+    private val browseCache = browseDir?.let { TextCache(it) }
+    private val browseJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     @Volatile var lastHome: HomeCatalog? = null
+
+    fun peekBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): SiteBrowse? {
+        val raw = browseCache?.read(browseKey(siteKey, page, typeId, extend)) ?: return null
+        val snap = runCatching { browseJson.decodeFromString(BrowseSnap.serializer(), raw) }.getOrNull() ?: return null
+        return snap.toBrowse()
+    }
 
     fun registry(): CatalogRegistry = registry
 
@@ -718,7 +730,7 @@ class CatalogRepository(
                     items = merged,
                     page = vod.page,
                     pageCount = vod.pageCount,
-                )
+                ).also { rememberBrowse(siteKey, page, typeId, extend, it) }
             },
             onFailure = { error ->
                 val message = if (site.kind == SiteKind.SPIDER) SpiderFault.explain(error) else UserFacingError.message(error)
@@ -773,7 +785,35 @@ class CatalogRepository(
     }
 
     suspend fun parses(): List<ParseDef> = expand().parses
+
+    private fun rememberBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>, browse: SiteBrowse) {
+        if (browse.items.isEmpty() && browse.classes.isEmpty()) return
+        val snap = BrowseSnap(
+            name = browse.name,
+            classes = browse.classes.map { "${it.id}\t${it.name}" },
+            items = browse.items,
+            page = browse.page,
+            pageCount = browse.pageCount,
+        )
+        browseCache?.write(browseKey(siteKey, page, typeId, extend), browseJson.encodeToString(BrowseSnap.serializer(), snap))
+    }
+
+    private fun browseKey(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): String {
+        val extra = extend.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+        return "$siteKey|$page|${typeId.orEmpty()}|$extra"
+    }
 }
+
+private fun BrowseSnap.toBrowse(): SiteBrowse = SiteBrowse(
+    name = name,
+    classes = classes.mapNotNull { row ->
+        val id = row.substringBefore('\t')
+        if (id.isBlank()) null else VodClass(id, row.substringAfter('\t').ifBlank { id })
+    },
+    items = items,
+    page = page,
+    pageCount = pageCount,
+)
 
 private fun siteOf(sites: List<VodSiteDef>, key: String): VodSiteDef? = sites.firstOrNull { it.key == key }
 
