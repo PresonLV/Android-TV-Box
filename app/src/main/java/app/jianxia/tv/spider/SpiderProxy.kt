@@ -77,7 +77,7 @@ class SpiderProxy(
                 }
             }, "spider-proxy-accept").apply { isDaemon = true }.start()
             true
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             false
         }
     }

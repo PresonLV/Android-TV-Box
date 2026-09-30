@@ -28,6 +28,7 @@ import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.R
 import app.jianxia.tv.data.net.ResilientDns
 import app.jianxia.tv.data.net.Ua
@@ -198,11 +199,21 @@ class PlaybackHost(context: Context) {
 
     fun setEngine(next: EngineId, useSoftware: Boolean) {
         if (next == engine && useSoftware == software && playerReady()) return
-        engine = next
-        software = useSoftware
-        releasePlayers()
-        ensurePlayer()
-        mount()
+        try {
+            engine = next
+            software = useSoftware
+            releasePlayers()
+            ensurePlayer()
+            mount()
+        } catch (error: Throwable) {
+            engine = EngineId.Exo
+            software = false
+            runCatching {
+                releasePlayers()
+                ensurePlayer()
+                mount()
+            }
+        }
     }
 
     fun bitrateLabel(): String {
@@ -380,6 +391,7 @@ class PlaybackHost(context: Context) {
 
     private fun vlc(): LibVLC {
         libVlc?.let { return it }
+        CrashStore.phase("启动 VLC")
         val options = ArrayList<String>()
         options += "--network-caching=2000"
         options += "--audio-time-stretch"

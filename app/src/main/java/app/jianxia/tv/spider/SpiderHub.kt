@@ -10,6 +10,7 @@ import app.jianxia.core.spider.JsHost
 import app.jianxia.core.spider.MemorySpiderStore
 import app.jianxia.core.spider.SpiderJson
 import app.jianxia.core.spider.SpiderPlay
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.data.net.NetClient
 import com.github.catvod.net.OkHttp
 import kotlinx.serialization.json.Json
@@ -75,21 +76,29 @@ class SpiderHub(
     }
 
     fun setEnabled(on: Boolean) {
-        enabled = on
-        if (!on) {
-            jars.clear()
-            scripts.values.forEach { runCatching { it.close() } }
-            scripts.clear()
-            sites.clear()
-            proxy.stop()
-        } else {
-            publishProxy()
+        try {
+            enabled = on
+            if (!on) {
+                jars.clear()
+                scripts.values.forEach { runCatching { it.close() } }
+                scripts.clear()
+                sites.clear()
+                proxy.stop()
+            } else {
+                publishProxy()
+            }
+        } catch (error: Throwable) {
+            Log.e("JianXia", "爬虫开关失败", error)
         }
     }
 
     private fun publishProxy() {
-        proxy.start()
-        jars.bindProxy(proxy.base())
+        runCatching {
+            proxy.start()
+            jars.bindProxy(proxy.base())
+        }.onFailure { error ->
+            Log.e("JianXia", "本地代理没有启动", error)
+        }
     }
 
     fun home(def: VodSiteDef): VodPage = call(def) {
@@ -191,6 +200,7 @@ class SpiderHub(
         if (!enabled) throw IllegalStateException("爬虫已关闭")
         val cold = def.spiderMode != SpiderMode.JS && (jars.preparing() || !jars.hot(def))
         val wait = if (cold) 180_000L else timeoutMs().coerceIn(8_000L, 20_000L)
+        CrashStore.phase(if (def.spiderMode == SpiderMode.JS) "脚本 ${def.key}" else "爬虫 ${def.key}")
         val future = pool.submit(Callable {
             if (!enabled) throw IllegalStateException("爬虫已关闭")
             try {

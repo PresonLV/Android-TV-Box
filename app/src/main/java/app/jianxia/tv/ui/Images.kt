@@ -1,6 +1,9 @@
 package app.jianxia.tv.ui
 
+import android.app.ActivityManager
 import android.content.Context
+import android.os.Build
+import android.os.Process
 import app.jianxia.tv.data.net.ResilientDns
 import coil.Coil
 import coil.ImageLoader
@@ -13,6 +16,15 @@ import java.util.concurrent.TimeUnit
 
 private const val BROWSER =
     "Mozilla/5.0 (Linux; Android 10; Android TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+private fun tightMemory(context: Context): Boolean {
+    val bit32 = Build.VERSION.SDK_INT < 23 || !Process.is64Bit()
+    val manager = context.getSystemService(ActivityManager::class.java)
+    val info = ActivityManager.MemoryInfo()
+    manager?.getMemoryInfo(info)
+    val lowRam = info.totalMem in 1..(900L * 1024 * 1024)
+    return bit32 || lowRam
+}
 
 fun installImageLoader(context: Context) {
     val http = OkHttpClient.Builder()
@@ -37,14 +49,16 @@ fun installImageLoader(context: Context) {
     val loader = ImageLoader.Builder(context)
         .okHttpClient(http)
         .memoryCache {
+            val bytes = if (tightMemory(context)) 8 * 1024 * 1024 else 24 * 1024 * 1024
             MemoryCache.Builder(context)
-                .maxSizeBytes(24 * 1024 * 1024)
+                .maxSizeBytes(bytes)
                 .build()
         }
         .diskCache {
+            val bytes = if (tightMemory(context)) 24L * 1024 * 1024 else 48L * 1024 * 1024
             DiskCache.Builder()
                 .directory(context.cacheDir.resolve("posters"))
-                .maxSizeBytes(48L * 1024 * 1024)
+                .maxSizeBytes(bytes)
                 .build()
         }
         .crossfade(false)

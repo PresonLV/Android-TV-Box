@@ -240,4 +240,15 @@ class SpiderTest {
         assertTrue(open.proxyUrl().startsWith("http://127.0.0.1"))
         assertEquals("标题", open.pdfh("<a>标题</a>", "a&&Text"))
     }
+
+    @Test
+    fun playIgnoresMismatchedHeaderAndFlags() {
+        val play = SpiderJson.play(
+            """{"url":"http://example.test/a.mkv","header":["nope"],"parse":{"on":1},"jx":true,"playUrl":"http://example.test/"}""",
+        )
+        assertEquals("http://example.test/a.mkv", play.url)
+        assertEquals(0, play.parse)
+        assertEquals(1, play.jx)
+        assertTrue(play.headers.isEmpty())
+    }
 }

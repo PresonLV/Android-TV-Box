@@ -11,6 +11,7 @@ object BackupCodec {
         encodeDefaults = true
         ignoreUnknownKeys = true
         isLenient = true
+        coerceInputValues = true
     }
 
     fun encode(bundle: BackupBundle): String = json.encodeToString(BackupBundle.serializer(), bundle)
