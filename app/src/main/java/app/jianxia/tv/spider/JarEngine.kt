@@ -14,6 +14,7 @@ import app.jianxia.core.spider.SpiderFault
 import app.jianxia.core.spider.SpiderJson
 import app.jianxia.core.spider.SpiderPlay
 import app.jianxia.core.spider.jarClassNames
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.data.net.Ua
 import java.io.File
 import java.lang.reflect.InvocationTargetException
@@ -110,9 +111,14 @@ internal class JarEngine(
     }
 
     fun play(def: VodSiteDef, flag: String, id: String): SpiderPlay {
-        val spider = session(def)
-        val raw = invoke(spider, "playerContent", flag, id, arrayListOf<String>())?.toString()
-        return SpiderJson.play(raw)
+        CrashStore.phase("播放解析 ${def.key}")
+        return try {
+            val spider = session(def)
+            val raw = invoke(spider, "playerContent", flag, id, arrayListOf<String>())?.toString()
+            SpiderJson.play(raw)
+        } catch (error: Throwable) {
+            throw IllegalStateException(SpiderFault.explain(error), error)
+        }
     }
 
     fun proxy(def: VodSiteDef, params: Map<String, String>): Any? {
@@ -134,6 +140,7 @@ internal class JarEngine(
     }
 
     fun warmup(raw: String, userAgent: String) {
+        CrashStore.phase("加载爬虫")
         preparing.incrementAndGet()
         try {
             val jar = cache.file(raw, userAgent)

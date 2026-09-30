@@ -23,6 +23,7 @@ import app.jianxia.core.parser.mediaMime
 import app.jianxia.core.parser.needsSniff
 import app.jianxia.core.parser.urlEncode
 import app.jianxia.tv.AppContainer
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.data.net.NetClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -545,6 +546,7 @@ class PlayerViewModel(private val app: AppContainer) : ViewModel() {
 
     private fun play(candidate: Candidate, resumeMs: Long) {
         val target = host ?: return
+        CrashStore.phase("准备播放 ${candidate.lineName}")
         val token = ++playToken
         if (target.engine != kernel || target.software != software) {
             target.setEngine(kernel, software)

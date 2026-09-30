@@ -15,6 +15,7 @@ import app.jianxia.tv.data.repo.BackupRepository
 import app.jianxia.tv.data.repo.SettingsRepository
 import app.jianxia.tv.data.repo.SourceRepository
 import app.jianxia.tv.data.repo.SubtitleStore
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.PlaybackSession
 import app.jianxia.tv.ui.push.directPlay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -189,6 +190,7 @@ class LanServer(
                     request.method == "GET" && route == "/api/sources" -> sourcesJson()
                     request.method == "GET" && route == "/api/appearance" -> appearanceJson()
                     request.method == "GET" && route == "/api/drive" -> driveJson()
+                    request.method == "GET" && route == "/api/crash" -> crashJson()
                     request.method == "POST" && route == "/api/drive" -> saveDrive(body)
                     request.method == "POST" && route == "/api/push" -> pushPlay(body)
                     request.method == "POST" && route == "/api/search" -> pushSearch(body)
@@ -659,13 +661,14 @@ class LanServer(
         output.flush()
     }
 
-    private fun page(unlocked: Boolean): String {
-        val raw = if (unlocked) UNLOCKED_PAGE else LOCKED_PAGE
-        val crash = app.jianxia.tv.CrashStore.read(context.filesDir)
-        if (crash.isBlank()) return raw
-        val safe = crash.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        val block = "<h2>最近一次崩溃</h2><pre style=\"white-space:pre-wrap\">$safe</pre>"
-        return raw.replace("</main>", "$block</main>")
+    private fun page(unlocked: Boolean): String = if (unlocked) UNLOCKED_PAGE else LOCKED_PAGE
+
+    private fun crashJson(): String {
+        val text = CrashStore.read(context.filesDir).ifBlank { "这台电视还没有记下崩溃日志。" }
+        return buildJsonObject {
+            put("ok", true)
+            put("text", text)
+        }.toString()
     }
 
     private companion object {
@@ -697,6 +700,12 @@ class LanServer(
             .swatches i{display:block;width:56px;height:36px}
             </style></head><body><main>
             <h1>个人影院</h1>
+            <h2>崩溃日志</h2>
+            <p>电视闪退后重新打开，点下面的按钮查看完整堆栈，再复制发给开发者。</p>
+            <button type="button" onclick="loadCrash()">查看崩溃日志</button>
+            <button type="button" class="ghost" onclick="copyCrash()">复制崩溃日志</button>
+            <pre id="crashLog" style="white-space:pre-wrap;display:none;background:#1c2230;padding:12px;border-radius:12px"></pre>
+            <p id="crashMsg"></p>
             <h2>推送到电视</h2>
             <p>播放地址会直接在电视上打开。搜索词会打开电视的搜索页。网盘 Cookie 只保存在这台电视上，不会上传到别处。</p>
             <label>播放地址<input id="pushUrl" placeholder="https:// 视频地址，m3u8 或 mp4"></label>
@@ -793,6 +802,29 @@ class LanServer(
                 const data = await api('/api/push', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url:url})});
                 document.getElementById('pushMsg').textContent = data.message || '已推送';
               } catch (e) { document.getElementById('pushMsg').textContent = friendly(e); }
+            }
+            async function loadCrash(){
+              const box = document.getElementById('crashLog');
+              const msg = document.getElementById('crashMsg');
+              try {
+                const data = await api('/api/crash');
+                window.__crashText = data.text || '';
+                box.style.display = 'block';
+                box.textContent = window.__crashText || '这台电视还没有记下崩溃日志。';
+                msg.textContent = '';
+              } catch (e) { msg.textContent = friendly(e); }
+            }
+            async function copyCrash(){
+              if (!window.__crashText) await loadCrash();
+              const text = window.__crashText || '';
+              const msg = document.getElementById('crashMsg');
+              if (!text) { msg.textContent = '没有可复制的日志'; return; }
+              try {
+                await navigator.clipboard.writeText(text);
+                msg.textContent = '已复制完整崩溃日志';
+              } catch (e) {
+                msg.textContent = '无法自动复制，请长按上面的日志手动复制';
+              }
             }
             async function pushSearch(){
               const query = document.getElementById('searchWord').value.trim();

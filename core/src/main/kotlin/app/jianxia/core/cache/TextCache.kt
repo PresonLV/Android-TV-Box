@@ -11,16 +11,30 @@ class TextCache(private val dir: File, private val memoryLimit: Int = 48) {
 
     fun read(key: String): String? {
         synchronized(memory) { memory[key] }?.let { return it }
-        val file = file(key)
-        if (!file.isFile) return null
-        val text = runCatching { file.readText() }.getOrNull() ?: return null
-        synchronized(memory) { memory[key] = text }
-        return text
+        return try {
+            val file = file(key)
+            if (!file.isFile) return null
+            val text = file.readText()
+            if (text.isBlank() || text.length > 2_000_000) {
+                file.delete()
+                return null
+            }
+            synchronized(memory) { memory[key] = text }
+            text
+        } catch (_: Throwable) {
+            delete(key)
+            null
+        }
+    }
+
+    fun delete(key: String) {
+        synchronized(memory) { memory.remove(key) }
+        runCatching { file(key).delete() }
     }
 
     fun write(key: String, text: String) {
-        synchronized(memory) { memory[key] = text }
-        runCatching {
+        try {
+            synchronized(memory) { memory[key] = text }
             dir.mkdirs()
             val target = file(key)
             val temp = File(dir, target.name + ".tmp")
@@ -29,6 +43,8 @@ class TextCache(private val dir: File, private val memoryLimit: Int = 48) {
                 target.writeText(text)
                 temp.delete()
             }
+        } catch (_: Throwable) {
+            delete(key)
         }
     }
 

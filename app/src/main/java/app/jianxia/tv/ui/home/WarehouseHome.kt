@@ -311,6 +311,12 @@ internal fun WarehouseHome(
     val safeV = (configuration.screenHeightDp * 0.05f).coerceIn(24f, 64f).dp
     val contentFocus = remember { FocusRequester() }
     val railFocus = remember { FocusRequester() }
+    var contentAttached by remember { mutableStateOf(false) }
+    var railAttached by remember { mutableStateOf(false) }
+    LaunchedEffect(actions.size) {
+        contentAttached = true
+        railAttached = actions.isNotEmpty()
+    }
     LaunchedEffect(focused?.key) {
         val card = focused ?: return@LaunchedEffect
         if (card.search) return@LaunchedEffect
@@ -327,7 +333,7 @@ internal fun WarehouseHome(
                 .padding(end = 16.dp)
                 .focusProperties {
                     exit = {
-                        if (it == androidx.compose.ui.focus.FocusDirection.Right) {
+                        if (it == androidx.compose.ui.focus.FocusDirection.Right && contentAttached) {
                             contentFocus
                         } else {
                             androidx.compose.ui.focus.FocusRequester.Cancel
@@ -340,7 +346,7 @@ internal fun WarehouseHome(
                 RailButton(
                     action.title,
                     railIcon(action.id),
-                    modifier = if (index == 0) Modifier.focusRequester(railFocus) else Modifier,
+                    modifier = if (index == 0 && railAttached) Modifier.focusRequester(railFocus) else Modifier,
                 ) { runAction(action.id, onHistory, onLive, onSearchPage, onPush, onFavorites, onSettings) }
             }
         }
@@ -349,10 +355,10 @@ internal fun WarehouseHome(
         Modifier
             .weight(1f)
             .fillMaxSize()
-            .focusRequester(contentFocus)
+            .then(if (contentAttached) Modifier.focusRequester(contentFocus) else Modifier)
             .focusProperties {
                 exit = {
-                    if (leftRail && it == androidx.compose.ui.focus.FocusDirection.Left) railFocus
+                    if (leftRail && railAttached && it == androidx.compose.ui.focus.FocusDirection.Left) railFocus
                     else androidx.compose.ui.focus.FocusRequester.Default
                 }
             }
@@ -688,6 +694,8 @@ private fun SitePicker(sites: List<VodSiteDef>, current: String?, onClose: () ->
     val palette = LocalPalette.current
     val first = remember { FocusRequester() }
     LaunchedEffect(sites.firstOrNull()?.key) {
+        if (sites.isEmpty()) return@LaunchedEffect
+        kotlinx.coroutines.delay(48)
         runCatching { first.requestFocus() }
     }
     Column(Modifier.fillMaxSize().background(palette.bg).padding(28.dp)) {

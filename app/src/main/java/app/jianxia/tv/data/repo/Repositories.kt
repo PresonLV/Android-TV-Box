@@ -112,14 +112,21 @@ class SettingsRepository(context: Context) {
     private fun persist(settings: AppSettings) {
         val stored = settings.copy(wallpaperPayload = "")
         _state.value = stored
-        file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), stored))
+        runCatching {
+            file.writeText(BackupCodec.json.encodeToString(AppSettings.serializer(), stored))
+        }
     }
 
     private fun read(): AppSettings {
         if (!file.exists()) return AppSettings()
-        return runCatching {
-            BackupCodec.json.decodeFromString(AppSettings.serializer(), file.readText()).sanitized()
-        }.getOrDefault(AppSettings())
+        return try {
+            val text = file.readText()
+            if (text.length > 1_500_000) error("settings too large")
+            BackupCodec.json.decodeFromString(AppSettings.serializer(), text).sanitized()
+        } catch (_: Throwable) {
+            runCatching { file.renameTo(File(file.parentFile, "settings.json.broken")) }
+            AppSettings()
+        }
     }
 }
 
@@ -500,6 +507,7 @@ class CatalogRepository(
     private val spiderEnabled: () -> Boolean = { false },
     private val spiders: app.jianxia.tv.spider.SpiderHub? = null,
     browseDir: File? = null,
+    private val skipCache: () -> Boolean = { false },
 ) {
     private val registry = CatalogRegistry(http)
     private var cached: Pair<String, ExpandedSources>? = null
@@ -508,9 +516,18 @@ class CatalogRepository(
     @Volatile var lastHome: HomeCatalog? = null
 
     fun peekBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): SiteBrowse? {
-        val raw = browseCache?.read(browseKey(siteKey, page, typeId, extend)) ?: return null
-        val snap = runCatching { browseJson.decodeFromString(BrowseSnap.serializer(), raw) }.getOrNull() ?: return null
-        return snap.toBrowse()
+        if (runCatching { skipCache() }.getOrDefault(false)) return null
+        val key = browseKey(siteKey, page, typeId, extend)
+        val raw = browseCache?.read(key) ?: return null
+        val snap = runCatching { browseJson.decodeFromString(BrowseSnap.serializer(), raw) }.getOrNull()
+        if (snap == null) {
+            browseCache?.delete(key)
+            return null
+        }
+        return runCatching { snap.toBrowse() }.getOrElse {
+            browseCache?.delete(key)
+            null
+        }
     }
 
     fun registry(): CatalogRegistry = registry
@@ -787,6 +804,7 @@ class CatalogRepository(
     suspend fun parses(): List<ParseDef> = expand().parses
 
     private fun rememberBrowse(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>, browse: SiteBrowse) {
+        if (runCatching { skipCache() }.getOrDefault(false)) return
         if (browse.items.isEmpty() && browse.classes.isEmpty()) return
         val snap = BrowseSnap(
             name = browse.name,
@@ -795,7 +813,8 @@ class CatalogRepository(
             page = browse.page,
             pageCount = browse.pageCount,
         )
-        browseCache?.write(browseKey(siteKey, page, typeId, extend), browseJson.encodeToString(BrowseSnap.serializer(), snap))
+        val encoded = runCatching { browseJson.encodeToString(BrowseSnap.serializer(), snap) }.getOrNull() ?: return
+        browseCache?.write(browseKey(siteKey, page, typeId, extend), encoded)
     }
 
     private fun browseKey(siteKey: String, page: Int, typeId: String?, extend: Map<String, String>): String {

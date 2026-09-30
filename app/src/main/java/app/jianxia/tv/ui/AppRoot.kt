@@ -9,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import app.jianxia.tv.CrashStore
 import app.jianxia.tv.RemoteCommand
 import app.jianxia.tv.ui.push.directPlay
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,6 +26,7 @@ import app.jianxia.tv.ui.player.PlayerScreen
 import app.jianxia.tv.ui.push.PushScreen
 import app.jianxia.tv.ui.search.SearchScreen
 import app.jianxia.tv.ui.settings.SettingsScreen
+import kotlinx.coroutines.delay
 
 @Composable
 fun AppRoot() {
@@ -34,6 +36,10 @@ fun AppRoot() {
     val nav = rememberNavController()
     val context = LocalContext.current
     val start = if (settings.startupPage == "live") "live" else "home"
+    LaunchedEffect(Unit) {
+        delay(4_000)
+        CrashStore.markReady()
+    }
     LaunchedEffect(Unit) {
         val url = (context as? Activity)?.intent?.getStringExtra("pushUrl").orEmpty().trim()
         if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -116,5 +122,6 @@ fun AppRoot() {
             }
             composable("player") { PlayerScreen(onBack = { nav.popBackStack() }) }
         }
+        CrashNotice()
     }
 }

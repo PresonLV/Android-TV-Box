@@ -38,8 +38,11 @@ class JianXiaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashStore.install(this)
-        installImageLoader(this)
+        runCatching { installImageLoader(this) }
         container = AppContainer(this)
+        jobs.launch {
+            container.pinyin = runCatching { PinyinIme.loadDefault() }.getOrElse { PinyinIme("") }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(container.lan.observer)
         jobs.launch {
             runCatching { container.sources.ensurePublicChannels(container.settings) }
@@ -47,9 +50,11 @@ class JianXiaApp : Application() {
         jobs.launch {
             app.jianxia.tv.spider.DriveCookies.onChanged = { container.spiders.dropSessions() }
             container.settings.state.collect {
-                container.spiders.setEnabled(it.spiderEnabled)
-                ResilientDns.mode = it.safeDns
-                app.jianxia.tv.spider.DriveCookies.apply(this@JianXiaApp, it)
+                runCatching {
+                    container.spiders.setEnabled(it.spiderEnabled && !CrashStore.safeMode)
+                    ResilientDns.mode = it.safeDns
+                    app.jianxia.tv.spider.DriveCookies.apply(this@JianXiaApp, it)
+                }
             }
         }
     }
@@ -69,6 +74,7 @@ class AppContainer(context: Application) {
         { settings.state.value.spiderEnabled },
         spiders,
         context.cacheDir.resolve("browse"),
+        { CrashStore.safeMode },
     )
     val live = LiveRepository(http)
     val douban = DoubanRepository(http, context.cacheDir)
@@ -82,7 +88,8 @@ class AppContainer(context: Application) {
     init {
         catalog.registry().register(SpiderCatalogFactory(spiders))
     }
-    val pinyin: PinyinIme = PinyinIme.loadDefault()
+    @Volatile
+    var pinyin: PinyinIme = PinyinIme("")
 }
 
 sealed class RemoteCommand {
